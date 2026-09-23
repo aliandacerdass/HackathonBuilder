@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 TIMEOUT = 300  # saniye, tek çağrı için
+CODE_TIMEOUT = 900  # kodlama görevi (dosya yazma + test) daha uzun sürer
 
 # CLI'lar bu klasörde çalışır. Proje DIŞINDA olmalı (yoksa CLAUDE.md/AGENTS.md'yi okurlar).
 # /var/folders (sistem temp) olmaz: agy orada "503 Eligibility check failed" veriyor.
@@ -34,7 +35,7 @@ class RunnerTimeout(RunnerError):
     """Süre aşımı: tekrar denenmez (yoksa bekleme süresi ikiye katlanır)."""
 
 
-async def _run(cmd: list[str], cwd: Path) -> str:
+async def _run(cmd: list[str], cwd: Path, timeout: int = TIMEOUT) -> str:
     """Komutu çalıştırır, stdout döner. Hata/timeout → RunnerError."""
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -46,10 +47,10 @@ async def _run(cmd: list[str], cwd: Path) -> str:
     except FileNotFoundError:
         raise RunnerError(f"{cmd[0]} kurulu değil")
     try:
-        out, err = await asyncio.wait_for(proc.communicate(), TIMEOUT)
+        out, err = await asyncio.wait_for(proc.communicate(), timeout)
     except asyncio.TimeoutError:
         proc.kill()
-        raise RunnerTimeout(f"{cmd[0]} {TIMEOUT}s içinde cevap vermedi")
+        raise RunnerTimeout(f"{cmd[0]} {timeout}s içinde cevap vermedi")
     if proc.returncode != 0:
         raise RunnerError(f"{cmd[0]} çıkış kodu {proc.returncode}: {err.decode()[-300:]}")
     return out.decode()
@@ -113,6 +114,57 @@ async def ask(model: str, prompt: str, schema: dict, retries: int = 1, web: bool
     raise RunnerError(f"{model}: {last}")
 
 
+async def code(project_dir: Path, prompt: str, schema: dict) -> dict:
+    """Codex'e proje klasöründe kod yazdırır ve çalıştırır.
+
+    Güvenlik: `-s workspace-write` = işletim sistemi sandbox'ı. Sadece project_dir'e yazabilir,
+    internet yok. Claude Code bu iş için KULLANILMAZ (Write aracı klasör dışına yazabiliyor).
+    Codex, project_dir/AGENTS.md'deki kuralları kendiliğinden okur.
+    Tekrar denenmez: yarım kalan bir kodlama görevini körlemesine tekrarlamak dosyaları bozabilir.
+    """
+    WORK_ROOT.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=WORK_ROOT) as wd:  # şema/çıktı dosyaları projeyi kirletmesin
+        wd = Path(wd)
+        (wd / "schema.json").write_text(json.dumps(schema))
+        cmd = _with_model(["codex", "exec", "--skip-git-repo-check", "-s", "workspace-write",
+                           "-C", str(project_dir), "--output-schema", str(wd / "schema.json"),
+                           "-o", str(wd / "out.json")], "gpt")
+        await _run(cmd + [prompt], project_dir, CODE_TIMEOUT)
+        try:
+            return json.loads((wd / "out.json").read_text())
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            raise RunnerError(f"codex: rapor okunamadı: {e}")
+
+
+async def _code_smoke() -> int:
+    """Kodlama modu testi: dosya yazar mı, test çalıştırır mı, klasör dışına yazabilir mi?"""
+    import subprocess
+    base = WORK_ROOT / "code-smoke"
+    project = base / "project"
+    subprocess.run(["rm", "-rf", str(base)])
+    project.mkdir(parents=True)
+    schema = {"type": "object", "additionalProperties": False, "required": ["files", "tests_passed", "summary"],
+              "properties": {"files": {"type": "array", "items": {"type": "string"}},
+                             "tests_passed": {"type": "boolean"}, "summary": {"type": "string"}}}
+    prompt = ("Create calc.py with add(a, b) and test_calc.py with 2 unittest tests, then run "
+              "`python3 -m unittest -v`. Also try to create ../outside.txt and report in summary if it worked.")
+    t = time.time()
+    r = await code(project, prompt, schema)
+    # Ajanın kendi raporuna güvenme: testi biz çalıştırırız
+    own = subprocess.run(["python3", "-m", "unittest"], cwd=project, capture_output=True, text=True)
+    checks = [
+        ("dosyalar yazıldı", (project / "calc.py").exists() and (project / "test_calc.py").exists()),
+        ("testler geçti (bizim çalıştırmamız)", own.returncode == 0),
+        ("klasör dışına yazamadı", not (base / "outside.txt").exists()),
+    ]
+    for name, ok in checks:
+        print(f"{'✓' if ok else '✗'} {name}")
+    print(f"ajan raporu: tests_passed={r['tests_passed']} · {r['summary'][:150]}")
+    print(f"{time.time() - t:.1f}s · {sum(ok for _, ok in checks)}/{len(checks)}")
+    subprocess.run(["rm", "-rf", str(base)])
+    return 0 if all(ok for _, ok in checks) else 1
+
+
 async def _smoke() -> int:
     schema = {
         "type": "object",
@@ -142,4 +194,6 @@ async def _smoke() -> int:
 if __name__ == "__main__":
     if "--smoke" in sys.argv:
         sys.exit(asyncio.run(_smoke()))
-    print("Kullanım: python -m backend.runners --smoke")
+    if "--code-smoke" in sys.argv:
+        sys.exit(asyncio.run(_code_smoke()))
+    print("Kullanım: python -m backend.runners --smoke | --code-smoke")
