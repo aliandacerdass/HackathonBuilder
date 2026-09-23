@@ -3,10 +3,13 @@
 POST /api/runs                 → konseyi başlatır, {run_id} döner
 GET  /api/runs/{id}/events     → SSE: pipeline olayları canlı akar (kopunca kaldığı yerden devam)
 POST /api/runs/{id}/decision   → kullanıcının seçtiği fikir → decision.json
+POST /api/runs/{id}/research   → V2 araştırmayı başlatır, {research_id} döner (olaylar aynı /events ile)
+POST /api/runs/{id}/research-decision → seçilen özellikler → research_decision.json
 """
 import asyncio
 import json
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 import uvicorn
@@ -16,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .pipeline import RUNS, RunnerError, run_pipeline, save_decision
+from .research import run_research
 
 HOST, PORT = "127.0.0.1", 8000  # sadece bu bilgisayar: CLI'lar senin aboneliğinle çalışıyor
 FRONTEND = Path(__file__).resolve().parent.parent / "frontend"
@@ -67,6 +71,11 @@ class DecisionIn(BaseModel):
     note: str = ""
 
 
+class ResearchDecisionIn(BaseModel):
+    features: list[str]
+    note: str = ""
+
+
 @app.get("/")
 async def index():
     return FileResponse(FRONTEND / "index.html")
@@ -82,10 +91,15 @@ async def start(body: RunIn):
 
     run_id = uuid.uuid4().hex[:12]
     live = LIVE[run_id] = Live()
+    start_job(live, run_pipeline(topic, body.hours, body.team.strip(), live.emit))
+    return {"run_id": run_id}
 
+
+def start_job(live: Live, coro):
+    """Boru hattını arka planda çalıştırır; hata olsa da akış kapanır."""
     async def job():
         try:
-            await run_pipeline(topic, body.hours, body.team.strip(), live.emit)
+            await coro
         except RunnerError:
             pass  # "fatal" olayı zaten yayınlandı
         except Exception as e:  # beklenmeyen hata da arayüze ulaşsın
@@ -95,7 +109,6 @@ async def start(body: RunIn):
             live.changed.set()
 
     asyncio.create_task(job())
-    return {"run_id": run_id}
 
 
 @app.get("/api/runs/{run_id}/events")
@@ -133,6 +146,34 @@ async def decide(run_id: str, body: DecisionIn):
         raise HTTPException(400, "Bu fikir sıralamada yok")
     save_decision(live.run_dir, choice, body.note.strip())
     return {"saved": f"runs/{live.run_dir.name}/decision.json"}
+
+
+@app.post("/api/runs/{run_id}/research")
+async def research(run_id: str):
+    live = LIVE.get(run_id)
+    if not live or not live.run_dir or not (live.run_dir / "decision.json").exists():
+        raise HTTPException(400, "Önce bir fikir seç")
+    rid = f"{run_id}-r"
+    if rid in LIVE and not LIVE[rid].finished:
+        return {"research_id": rid}  # zaten çalışıyor: ikinci kez başlatma (kota)
+    r = LIVE[rid] = Live()
+    r.run_dir = live.run_dir
+    start_job(r, run_research(live.run_dir, r.emit))
+    return {"research_id": rid}
+
+
+@app.post("/api/runs/{run_id}/research-decision")
+async def research_decide(run_id: str, body: ResearchDecisionIn):
+    live = LIVE.get(run_id)
+    if not live or not live.run_dir or not (live.run_dir / "research.json").exists():
+        raise HTTPException(400, "Araştırma henüz bitmedi")
+    research = json.loads((live.run_dir / "research.json").read_text())
+    by_name = {f["name"]: f for f in research["features"]}
+    chosen = [by_name[n] for n in body.features if n in by_name]
+    data = {"features": chosen, "note": body.note.strip(),
+            "decided_at": datetime.now().isoformat(timespec="seconds")}
+    (live.run_dir / "research_decision.json").write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    return {"saved": f"runs/{live.run_dir.name}/research_decision.json", "count": len(chosen)}
 
 
 if __name__ == "__main__":

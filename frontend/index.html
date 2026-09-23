@@ -19,6 +19,7 @@
       <li data-stage="council_round2">Konsey II</li>
       <li data-stage="judge">Jüri</li>
       <li data-stage="decision">Karar</li>
+      <li data-stage="research">Araştırma</li>
     </ol>
     <span class="clock mono" id="clock" hidden>00:00</span>
   </header>
@@ -61,6 +62,25 @@
         <p class="hint">Jüri fikirleri yazarını görmeden puanladı. Toplam puan ağırlıklı ortalamadır. <span id="judge-by"></span></p>
         <p class="hint mono" id="timings"></p>
         <div id="scores"></div>
+      </section>
+
+      <section class="research" id="research" hidden aria-live="polite">
+        <h2>Araştırma</h2>
+        <p class="hint" id="research-status">Arama sorguları yazılıyor…</p>
+        <div class="r-grid">
+          <div class="r-col">
+            <h3 class="eyebrow">Jüri için sayılar</h3>
+            <div id="stats"><p class="hint">Kaynaklar toplanınca burada görünecek.</p></div>
+          </div>
+          <div class="r-col">
+            <h3 class="eyebrow">Önerilen özellikler</h3>
+            <form id="features"><p class="hint">Kaynaklar toplanınca burada görünecek.</p></form>
+          </div>
+          <div class="r-col">
+            <h3 class="eyebrow">Kaynaklar <span class="by mono" id="source-count"></span></h3>
+            <ul class="sources" id="sources"></ul>
+          </div>
+        </div>
       </section>
 
       <p class="error" id="fatal" role="alert" hidden></p>

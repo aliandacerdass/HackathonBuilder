@@ -5,7 +5,7 @@ const CRITERIA = [
   ["jury_fit", "Jüri uyumu"], ["feasibility", "Yapılabilirlik"], ["wow", "Etki anı"],
   ["originality", "Özgünlük"], ["demo", "Demo"],
 ];
-const STAGES = ["input", "refine", "council_round1", "council_round2", "judge", "decision"];
+const STAGES = ["input", "refine", "council_round1", "council_round2", "judge", "decision", "research"];
 const STAGE_NAMES = { refine: "Netleştirme", council_round1: "Konsey I", council_round2: "Konsey II", judge: "Jüri" };
 
 function el(tag, cls, text) {
@@ -216,8 +216,153 @@ function openDecision(row, r) {
     if (!res.ok) { save.disabled = false; form.append(el("p", "error", data.detail)); return; }
     document.querySelectorAll(".score").forEach((s) => s.classList.remove("chosen"));
     row.classList.add("chosen");
-    form.replaceWith(el("p", "saved", `Karar kaydedildi: ${data.saved}`));
+    const done = el("div", "decided");
+    const go = el("button", "primary", "Bu fikir için araştırma yap");
+    go.type = "button";
+    go.addEventListener("click", () => startResearch(go));
+    done.append(el("p", "saved", `Karar kaydedildi: ${data.saved}`), go);
+    form.replaceWith(done);
   });
+}
+
+// ---------- V2: araştırma ----------
+const R_STATUS = {
+  research_queries: "Arama sorguları yazılıyor…",
+  research_collect: "Makaleler, repolar, web kaynakları ve videolar toplanıyor…",
+  research_verify: "Linkler tek tek doğrulanıyor…",
+  research_analyze: "Kaynaklardan sayılar ve özellikler çıkarılıyor…",
+};
+const BADGE = { verified: ["✓", "doğrulandı"], unverified: ["?", "doğrulanamadı: site erişimi engelledi"], dead: ["✗", "ulaşılamadı"] };
+let rSource = null;
+
+// Model linkleri: SADECE http/https tıklanabilir (javascript: vb. linkler düz metin kalır)
+function link(url, text) {
+  let u;
+  try { u = new URL(url); } catch { return el("span", null, text); }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return el("span", null, text);
+  const a = el("a", null, text);
+  a.href = u.href;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  return a;
+}
+const host = (url) => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; } };
+function badge(status) {
+  const [sym, label] = BADGE[status] || BADGE.unverified;
+  const b = el("span", `badge ${status}`, sym);
+  b.title = label;
+  b.setAttribute("aria-label", label);
+  return b;
+}
+
+function addSource(kind, title, url, status, meta) {
+  const li = el("li");
+  li.append(el("span", "kind mono", kind), badge(status), link(url, title));
+  if (meta) li.append(el("p", "meta", meta));
+  $("#sources").append(li);
+  $("#source-count").textContent = `· ${$("#sources").children.length}`;
+}
+
+const researchHandlers = {
+  stage({ stage }) { $("#research-status").textContent = R_STATUS[stage] || ""; },
+  source(d) {
+    if (d.status === "dead") return;  // ölü linkler listelenmez
+    const kind = d.kind === "paper" ? "makale" : d.kind === "video" ? "video" : "web";
+    const meta = d.kind === "paper" ? `${d.year} · ${d.citations} atıf` : d.finding;
+    addSource(kind, d.title, d.url, d.status, meta);
+  },
+  repo(d) {
+    const meta = [`${d.stars} yıldız · son güncelleme ${d.last_push}`, d.reuse && `Alınabilir: ${d.reuse}`, d.caution && `Dikkat: ${d.caution}`]
+      .filter(Boolean).join(" · ");
+    addSource("repo", d.name, d.url, "verified", meta);
+  },
+  research(d) {
+    renderStats(d.stats);
+    renderFeatures(d.features);
+  },
+  error(d) { console.warn(d); },
+  timing() {},
+  queries() {},
+  done(d) {
+    stopClock();
+    rSource.close();
+    $("#research-status").textContent = `Araştırma bitti: ${Math.round(d.total)} saniye.`;
+  },
+  fatal(d) {
+    stopClock();
+    rSource.close();
+    $("#research-status").textContent = `Araştırma durdu: ${d.error}`;
+  },
+};
+
+function renderStats(stats) {
+  const box = $("#stats");
+  if (!stats.length) { box.replaceChildren(el("p", "hint", "Kaynaklarda kullanılabilir sayı bulunamadı.")); return; }
+  box.replaceChildren(...stats.map((s) => {
+    const card = el("article", "stat");
+    const src = el("p", "src");
+    src.append(badge(s.status), link(s.source_url, host(s.source_url)));
+    card.append(el("p", "value", s.value), el("p", "claim", s.claim), src, el("p", "use mono", s.pitch_use));
+    return card;
+  }));
+}
+
+function renderFeatures(features) {
+  const form = $("#features");
+  if (!features.length) { form.replaceChildren(el("p", "hint", "Kaynaklara dayanan özellik bulunamadı.")); return; }
+  const items = features.map((f, i) => {
+    const row = el("label", "feature");
+    const cb = el("input");
+    cb.type = "checkbox";
+    cb.value = f.name;
+    cb.id = `f${i}`;
+    const body = el("span");
+    const name = el("strong", null, f.name);
+    body.append(name, el("span", `effort ${f.effort}`, { low: "kolay", medium: "orta", high: "zor" }[f.effort] || f.effort),
+      el("span", "why", f.why));
+    const srcs = el("span", "fsrc");
+    f.source_urls.forEach((u) => srcs.append(link(u, host(u))));
+    body.append(srcs);
+    row.append(cb, body);
+    return row;
+  });
+  const note = el("input");
+  note.placeholder = "Not (isteğe bağlı)";
+  note.setAttribute("aria-label", "Özellik kararı notu");
+  const save = el("button", "primary", "Seçili özellikleri kaydet");
+  save.type = "submit";
+  form.replaceChildren(...items, note, save);
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    save.disabled = true;
+    const chosen = [...form.querySelectorAll("input[type=checkbox]:checked")].map((c) => c.value);
+    const res = await fetch(`/api/runs/${runId}/research-decision`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ features: chosen, note: note.value }),
+    });
+    const data = await res.json();
+    if (!res.ok) { save.disabled = false; form.append(el("p", "error", data.detail)); return; }
+    save.replaceWith(el("p", "saved", `${data.count} özellik kaydedildi: ${data.saved}`));
+  };
+}
+
+async function startResearch(btn) {
+  btn.disabled = true;
+  const res = await fetch(`/api/runs/${runId}/research`, { method: "POST" });
+  const data = await res.json();
+  if (!res.ok) { btn.disabled = false; btn.after(el("p", "error", data.detail)); return; }
+  document.querySelectorAll(".pick").forEach((p) => { p.disabled = true; });  // karar araştırmayla kilitlenir
+  btn.remove();
+  setStage("research");
+  $("#research").hidden = false;
+  $("#research").scrollIntoView({ behavior: "smooth" });
+  startClock();
+  rSource = new EventSource(`/api/runs/${data.research_id}/events`);
+  for (const [name, fn] of Object.entries(researchHandlers)) {
+    rSource.addEventListener(name, (ev) => fn(JSON.parse(ev.data)));
+  }
 }
 
 // ---------- başlat ----------

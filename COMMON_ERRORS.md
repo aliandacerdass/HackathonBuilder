@@ -25,4 +25,5 @@
 - [ ] Her CLI çağrısında timeout var
 - [ ] Bir model düşerse pipeline çökmüyor
 - [ ] Model çıktısı DOM'a sadece textContent ile yazılıyor (innerHTML yok)
+- [ ] Model'den gelen link sadece `link()` ile (http/https kontrolü) — `a.href = url` doğrudan YASAK
 - [ ] PROJECT_MEMORY.md "Kaldığımız Yer" + tasks.md güncel
