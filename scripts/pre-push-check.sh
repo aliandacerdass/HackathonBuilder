@@ -27,7 +27,7 @@ PATTERNS=(
   'gh[pousr]_[A-Za-z0-9]{36}'               # GitHub token
   '-----BEGIN [A-Z ]*PRIVATE KEY-----'      # private key
   '/Users/[^/[:space:]]+/'                  # ev dizini (kişisel yol)
-  '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'  # e-posta
+  '[A-Za-z0-9][A-Za-z0-9._%+-]*@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}'  # e-posta
 )
 ALLOW='noreply@|example\.com'
 
@@ -54,7 +54,8 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 
   # 3) Ek kalıplar: sadece eklenen satırlar
   # shellcheck disable=SC2086
-  added=$(git log -p --format= $range -- . "$EXCLUDE" | grep '^+' | grep -v '^+++')
+  # baştaki diff "+" işareti silinir (yoksa "+@app.get" e-posta sanılıyor)
+  added=$(git log -p --format= $range -- . "$EXCLUDE" | grep '^+' | grep -v '^+++' | sed 's/^+//')
   for p in "${PATTERNS[@]}"; do
     hits=$(printf '%s\n' "$added" | grep -Eo -- "$p" | grep -Ev "$ALLOW")
     if [ -n "$hits" ]; then

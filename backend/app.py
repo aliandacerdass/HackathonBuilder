@@ -1,0 +1,139 @@
+"""Yerel web arayüzü: python -m backend.app → http://127.0.0.1:8000
+
+POST /api/runs                 → konseyi başlatır, {run_id} döner
+GET  /api/runs/{id}/events     → SSE: pipeline olayları canlı akar (kopunca kaldığı yerden devam)
+POST /api/runs/{id}/decision   → kullanıcının seçtiği fikir → decision.json
+"""
+import asyncio
+import json
+import uuid
+from pathlib import Path
+
+import uvicorn
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+from .pipeline import RUNS, RunnerError, run_pipeline, save_decision
+
+HOST, PORT = "127.0.0.1", 8000  # sadece bu bilgisayar: CLI'lar senin aboneliğinle çalışıyor
+FRONTEND = Path(__file__).resolve().parent.parent / "frontend"
+ALLOWED_ORIGINS = {f"http://{HOST}:{PORT}", f"http://localhost:{PORT}"}
+
+app = FastAPI()
+app.mount("/static", StaticFiles(directory=FRONTEND), name="static")
+
+
+@app.middleware("http")
+async def same_origin_only(request: Request, call_next):
+    """Başka bir site tarayıcın üzerinden bu sunucuya istek atamasın (kota/prompt kötüye kullanımı)."""
+    origin = request.headers.get("origin")
+    if origin and origin not in ALLOWED_ORIGINS:
+        return JSONResponse({"error": "izin verilmeyen kaynak"}, status_code=403)
+    return await call_next(request)
+
+
+class Live:
+    """Çalışan bir boru hattının olay geçmişi. SSE bağlantısı koparsa geçmişten devam edilir."""
+
+    def __init__(self):
+        self.events: list[tuple[str, dict]] = []
+        self.changed = asyncio.Event()
+        self.finished = False
+        self.ranking: list[dict] = []
+        self.run_dir: Path | None = None
+
+    def emit(self, event: str, data: dict):
+        self.events.append((event, data))
+        if event == "ranking":
+            self.ranking = data["ranking"]
+        elif event == "done":
+            self.run_dir = RUNS / data["run_dir"]
+        self.changed.set()
+
+
+LIVE: dict[str, Live] = {}
+
+
+class RunIn(BaseModel):
+    topic: str
+    hours: int = 24
+    team: str = ""
+
+
+class DecisionIn(BaseModel):
+    idea_id: str
+    note: str = ""
+
+
+@app.get("/")
+async def index():
+    return FileResponse(FRONTEND / "index.html")
+
+
+@app.post("/api/runs")
+async def start(body: RunIn):
+    topic = body.topic.strip()
+    if not topic:
+        raise HTTPException(400, "Konu boş olamaz")
+    if not 1 <= body.hours <= 168:
+        raise HTTPException(400, "Süre 1-168 saat arası olmalı")
+
+    run_id = uuid.uuid4().hex[:12]
+    live = LIVE[run_id] = Live()
+
+    async def job():
+        try:
+            await run_pipeline(topic, body.hours, body.team.strip(), live.emit)
+        except RunnerError:
+            pass  # "fatal" olayı zaten yayınlandı
+        except Exception as e:  # beklenmeyen hata da arayüze ulaşsın
+            live.emit("fatal", {"error": f"beklenmeyen hata: {e}"})
+        finally:
+            live.finished = True
+            live.changed.set()
+
+    asyncio.create_task(job())
+    return {"run_id": run_id}
+
+
+@app.get("/api/runs/{run_id}/events")
+async def events(run_id: str, request: Request):
+    live = LIVE.get(run_id)
+    if not live:
+        raise HTTPException(404, "Böyle bir çalıştırma yok")
+    start_at = int(request.headers.get("last-event-id", -1)) + 1
+
+    async def stream():
+        i = start_at
+        while True:
+            while i < len(live.events):
+                event, data = live.events[i]
+                yield f"id: {i}\nevent: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+                i += 1
+            if live.finished:
+                return
+            live.changed.clear()
+            try:
+                await asyncio.wait_for(live.changed.wait(), 15)
+            except asyncio.TimeoutError:
+                yield ": keepalive\n\n"  # bağlantı açık kalsın
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+@app.post("/api/runs/{run_id}/decision")
+async def decide(run_id: str, body: DecisionIn):
+    live = LIVE.get(run_id)
+    if not live or not live.run_dir:
+        raise HTTPException(404, "Bu çalıştırma henüz bitmedi")
+    choice = next((r for r in live.ranking if r["idea_id"] == body.idea_id), None)
+    if not choice:
+        raise HTTPException(400, "Bu fikir sıralamada yok")
+    save_decision(live.run_dir, choice, body.note.strip())
+    return {"saved": f"runs/{live.run_dir.name}/decision.json"}
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host=HOST, port=PORT)

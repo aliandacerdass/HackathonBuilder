@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HackathonBuilder</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Gloock&family=Martian+Mono:wght@400;500&family=Onest:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="top">
+    <span class="brand">HackathonBuilder</span>
+    <ol class="rail" id="rail" aria-label="Aşamalar">
+      <li data-stage="input">Konu</li>
+      <li data-stage="refine">Netleştirme</li>
+      <li data-stage="council_round1">Konsey I</li>
+      <li data-stage="council_round2">Konsey II</li>
+      <li data-stage="judge">Jüri</li>
+      <li data-stage="decision">Karar</li>
+    </ol>
+    <span class="clock mono" id="clock" hidden>00:00</span>
+  </header>
+
+  <main>
+    <form class="intake" id="intake">
+      <label class="eyebrow" for="topic">Hackathonun konusu</label>
+      <textarea id="topic" rows="2" required placeholder="ör. Sağlıkta yapay zeka"></textarea>
+      <div class="fields">
+        <label>Süre (saat)
+          <input id="hours" type="number" min="1" max="168" value="24" required>
+        </label>
+        <label class="grow">Ekip
+          <input id="team" placeholder="ör. 2 kişi, Python ve Flutter biliyor">
+        </label>
+      </div>
+      <button type="submit" class="primary">Konseyi topla</button>
+      <p class="hint">Claude, GPT ve Gemini fikir üretir ve birbirinin fikirlerini eleştirir. Jüri puanlar, son kararı sen verirsin. Bir tur birkaç dakika sürer.</p>
+      <p class="error" id="intake-error" role="alert" hidden></p>
+    </form>
+
+    <section class="work" id="work" hidden>
+      <section class="brief" id="brief" aria-live="polite">
+        <p class="eyebrow">Netleştirilmiş konu <span class="by mono" id="brief-by"></span></p>
+        <p class="brief-topic" id="brief-topic">Konu netleştiriliyor…</p>
+        <ul class="criteria" id="criteria"></ul>
+      </section>
+
+      <section class="council">
+        <h2>Konsey</h2>
+        <div class="lanes">
+          <div class="lane" data-model="claude"><header><i></i>Claude<span class="status mono">bekliyor</span></header><div class="cards"></div></div>
+          <div class="lane" data-model="gpt"><header><i></i>GPT<span class="status mono">bekliyor</span></header><div class="cards"></div></div>
+          <div class="lane" data-model="gemini"><header><i></i>Gemini<span class="status mono">bekliyor</span></header><div class="cards"></div></div>
+        </div>
+      </section>
+
+      <section class="jury" id="jury" hidden>
+        <h2>Jüri puanları</h2>
+        <p class="hint">Jüri fikirleri yazarını görmeden puanladı. Toplam puan ağırlıklı ortalamadır.</p>
+        <div id="scores"></div>
+      </section>
+
+      <p class="error" id="fatal" role="alert" hidden></p>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
