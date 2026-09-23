@@ -1,10 +1,10 @@
 # HackathonBuilder
 
-Hackathon konusunu gir. Claude, GPT ve Gemini'den oluşan bir konsey fikir üretir ve birbirinin fikirlerini eleştirir. Bir jüri modeli fikirleri puanlar, son kararı sen verirsin.
+Hackathon konusunu gir. Claude, GPT ve Gemini'den oluşan bir konsey fikir üretir ve birbirinin fikirlerini eleştirir. Bir jüri modeli fikirleri puanlar, son kararı sen verirsin. Seçtiğin fikir için makale, repo, web ve video kaynakları toplanır. Jüriye gösterebileceğin, kaynağı doğrulanmış sayılar ve eklenebilecek özellikler çıkarılır.
 
 **API key gerekmez.** Uygulama modelleri kendi aboneliklerinle, resmi CLI'lar üzerinden çağırır: Claude Code, Codex CLI ve Antigravity (`agy`). Her şey senin bilgisayarında çalışır.
 
-> Durum: **V1** (fikir konseyi) çalışıyor. Araştırma ajanları, kodlama döngüsü ve UI/UX ajanı yol haritasında.
+> Durum: **V1** (fikir konseyi) ve **V2** (araştırma) çalışıyor. Kodlama döngüsü ve UI/UX ajanı yol haritasında.
 
 ## Nasıl çalışır
 
@@ -20,6 +20,21 @@ Konu ──▶ Netleştirme ──▶ Konsey I ──▶ Konsey II ──▶ Jü
 - **Jüri:** Fikirleri yazarını bilmeden puanlar. Toplam puanı model değil kod hesaplar (ağırlıklı ortalama).
 - **Model düşerse:** Bir model hata verirse konsey kalan modellerle devam eder. Netleştirme ve jüri adımlarında sıradaki modele geçilir.
 - Bir tur genelde **1.5-3 dakika** sürer (süre servislerin anlık yüküne göre değişir).
+
+### Araştırma (V2)
+
+```
+Seçtiğin fikir ──▶ Arama sorguları ──▶ Makaleler (OpenAlex)      ──▶ Link       ──▶ Jüri için sayılar
+                   (LLM)               Repolar (GitHub + README)     doğrulama      (her sayı kaynaklı)
+                                       Web (GPT web araması)         (kod)       ──▶ Önerilen özellikler
+                                       Videolar (Claude web araması)                  ──▶ 👤 Seçim
+```
+
+- **Uydurma kaynak üretilemez:** Makale ve repolar resmi API'lerden gelir. LLM sadece sorgu yazar, seçer ve analiz eder.
+- **Her link kodla doğrulanır:** ✓ doğrulandı, ? site erişimi engelledi, ✗ ulaşılamadı (listeden çıkarılır).
+- **Kaynak filtresi:** Bir sayı veya özellik, toplanan listede olmayan bir linke dayanıyorsa kodla atılır.
+- **Gemini sadece analiz yapar**, web'e çıkmaz. Web araması Claude ve GPT'de.
+- Bir araştırma turu genelde **1.5-2.5 dakika** sürer. Web araması Claude kotasını normal çağrılardan hızlı harcar.
 
 ## Gereksinimler
 
@@ -51,6 +66,14 @@ python -m backend.runners --smoke
 
 Beklenen çıktı `3/3`. Bir model ✗ verirse o CLI'ın girişini kontrol et. Bilinen hatalar için [COMMON_ERRORS.md](COMMON_ERRORS.md).
 
+Araştırma API'lerini (OpenAlex, GitHub, YouTube) kontrol et:
+
+```bash
+python -m backend.tools --selftest
+```
+
+Beklenen çıktı `10/10`. GitHub, key olmadan saatte 60 isteğe izin veriyor.
+
 ## Kullanım
 
 **Tarayıcıda:**
@@ -61,10 +84,13 @@ python -m backend.app
 
 **http://127.0.0.1:8000** adresini aç. Konuyu, süreyi ve ekibi gir, sonra **Konseyi topla**'ya bas. Tur bitince istediğin fikrin kartında **Bu fikri seç**'e bas, istersen not ekle.
 
+Kararı kaydettikten sonra **Bu fikir için araştırma yap**'a bas. Araştırma bitince eklemek istediğin özellikleri işaretleyip **Seçili özellikleri kaydet**'e bas.
+
 **Terminalde:**
 
 ```bash
 python -m backend.pipeline "Sağlıkta yapay zeka" --hours 24 --team "2 kişi, Python ve Flutter"
+python -m backend.research runs/<tur-klasörü>      # decision.json olan bir tur için araştırma
 ```
 
 ### Çıktılar
@@ -79,6 +105,9 @@ Her tur `runs/<tarih>-<konu>/` klasörüne kaydedilir:
 | `ranking.json` | Jüri puanları ve sıralama |
 | `timings.json` | Aşama ve model süreleri |
 | `decision.json` | Seçtiğin fikir ve notun |
+| `research.json` | Sorgular, makaleler, repolar, web/video kaynakları, sayılar, özellikler |
+| `research_timings.json` | Araştırma aşama ve model süreleri |
+| `research_decision.json` | Seçtiğin özellikler ve notun |
 
 `runs/` git'e gönderilmez, fikirlerin bilgisayarında kalır.
 
@@ -97,7 +126,8 @@ Gemini için kullanılabilir modelleri görmek için: `agy models`
 
 - **Sadece yerel:** Sunucu yalnızca `127.0.0.1`'de dinler, aynı ağdaki başka cihazlar erişemez. Başka sitelerden gelen istekler reddedilir (Origin kontrolü).
 - **Temiz context:** Modeller proje dışındaki boş bir klasörde çalışır, proje dosyalarını görmez.
-- **Güvenli gösterim:** Model çıktıları sayfaya düz metin olarak yazılır (`textContent`). Çıktının içindeki HTML/script çalışmaz.
+- **Güvenli gösterim:** Model çıktıları sayfaya düz metin olarak yazılır (`textContent`). Çıktının içindeki HTML/script çalışmaz. Model linklerinden sadece `http`/`https` olanlar tıklanabilir.
+- **Kısıtlı web erişimi:** Araştırmada Claude'a sadece arama ve okuma araçları verilir. GPT salt okunur sandbox'ta çalışır. Skill'ler, kaynak metnindeki talimatların yok sayılmasını söyler (prompt injection).
 - **Push öncesi tarama:** Her push'tan önce `scripts/pre-push-check.sh` çalışır: gitleaks, API key, kişisel yol ve e-posta taraması. Bulgu varsa push iptal edilir.
 
 ## Proje dosyaları
@@ -108,12 +138,12 @@ Gemini için kullanılabilir modelleri görmek için: `agy models`
 | `PROJECT_MEMORY.md` | Kararlar, mimari, **kaldığımız yer** |
 | `tasks.md` | Fazlara göre yapılacaklar |
 | `COMMON_ERRORS.md` | Bilinen hatalar ve kontrol listesi |
-| `skills/*.md` | Ajan rolleri (netleştirici, konsey üyesi, jüri) |
+| `skills/*.md` | Ajan rolleri (netleştirici, konsey üyesi, jüri, sorgu yazıcı, web araştırmacı, repo inceleyici, sayı ve özellik çıkarıcı) |
 
 ## Yol haritası
 
 - [x] **V1:** Fikir konseyi (netleştirme → 2 turlu konsey → jüri → karar)
-- [ ] **V2:** Araştırma ajanları (makale, sayısal veri, özellik, GitHub, web/YouTube)
+- [x] **V2:** Araştırma ajanları (makale, sayısal veri, özellik, GitHub, web/YouTube)
 - [ ] **V3:** Kodlama döngüsü (kod → güvenlik → test → hata raporu, kullanıcı onay noktalarıyla)
 - [ ] **V4:** UI/UX iyileştirme ve jüri sunumu
 
