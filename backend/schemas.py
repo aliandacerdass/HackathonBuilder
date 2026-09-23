@@ -131,3 +131,38 @@ class Feature(BaseModel):
 
 class Features(BaseModel):
     features: list[Feature]
+
+
+# ---------- V3: kodlama ----------
+
+class BuildTask(BaseModel):
+    id: str                     # T1, T2, ...
+    title: str
+    goal: str                   # ne yapılacak + kabul kriteri
+    files: list[str]            # dokunulacak dosyalar
+
+
+class Plan(BaseModel):
+    summary: str
+    file_tree: list[str]
+    packages: list[str]         # fastapi/uvicorn/httpx/pydantic DIŞINDA gereken pip paketleri
+    tasks: list[BuildTask]      # sıralı, en fazla 8
+    demo_steps: list[str]       # jüriye demo nasıl gösterilir
+
+
+class CodeReport(BaseModel):
+    files_changed: list[str]
+    tests_passed: bool          # ajanın kendi iddiası: bizim test çalıştırmamızla doğrulanır
+    summary: str
+    problems: list[str]
+
+
+class Finding(BaseModel):
+    severity: str               # high | medium | low
+    file: str
+    issue: str
+    fix: str
+
+
+class SecurityReview(BaseModel):
+    findings: list[Finding]

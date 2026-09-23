@@ -19,6 +19,8 @@
 | Arka plan izleyicisi sonsuza kadar bekledi | "Yeni klasör açılsın" beklerken klasör zaten açılmıştı | Tetikleyiciden SONRA değil, bilinen hedefi izle |
 | Claude Code `Write` klasör dışına yazar | `acceptEdits` modunda `../outside.txt` izinsiz oluştu | Kod yazdırma SADECE Codex `-s workspace-write`; Claude'a dosya aracı verme |
 | `--allowedTools` prompt'u yuttu | `Input must be provided... when using --print` | Araçları virgülle tek argüman ver (`"Read,Edit"`) veya prompt'tan önce `--` koy |
+| Codex kotası doldu | `usage limit. Upgrade to Plus... try again at Oct 2nd` | Kodlayıcı alternatifi: Claude Code OS sandbox içinde |
+| İzin kuralı `Write(./**)` işe yaramaz | "not matched by file permission checks" | `Edit(./**)` kullan |
 | agy uzun işte timeout | Yarım çıktı | Tek çağrıya tek iş, `--print-timeout` ver |
 
 ## Her Değişiklik Sonrası Kontrol Listesi

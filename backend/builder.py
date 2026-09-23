@@ -1,0 +1,286 @@
+"""V3 kodlama döngüsü: seçilen fikir (+özellikler) → plan → 👤 onay → 👤 paket onayı → görev döngüsü.
+
+Her görev: Codex kodlar (sandbox) → testleri BİZ çalıştırırız (sandbox) → en fazla 3 düzeltme
+→ Claude güvenlik incelemesi (araçsız, diff metin olarak) → ciddi bulgu varsa düzeltme → commit.
+
+Terminalden:
+    python -m backend.builder runs/20260923-220049-cevre-ve-surdurulebilirlik-icin-yapay-ze
+"""
+import argparse
+import asyncio
+import json
+import os
+import shutil
+import time
+from pathlib import Path
+
+from .pipeline import ROOT, RUNS, SKILLS, Run, RunnerError, call_first
+from .runners import code
+from .schemas import CodeReport, Plan, SecurityReview, json_schema
+
+PROJECTS = Path.home() / "HackathonBuilderProjects"
+MAX_FIX = 3
+MAX_TASKS = 8
+TEST_CMD = [".venv/bin/python", "-m", "unittest", "discover", "-s", "tests", "-v"]
+TEST_TIMEOUT = 300
+
+
+class BuildStopped(RunnerError):
+    """Kullanıcı reddetti veya durdurdu."""
+
+
+# ---------- yardımcılar ----------
+
+async def sh(cmd: list[str], cwd: Path, timeout: int = 120, env: dict | None = None) -> tuple[int, str]:
+    proc = await asyncio.create_subprocess_exec(
+        *cmd, cwd=cwd, stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+        env={**os.environ, **(env or {})})
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        return 124, f"{cmd[0]}: {timeout}s içinde bitmedi"
+    return proc.returncode, out.decode(errors="replace")
+
+
+async def git(project: Path, *args: str) -> str:
+    code_, out = await sh(["git", *args], project)
+    if code_ != 0:
+        raise RunnerError(f"git {args[0]}: {out[-300:]}")
+    return out
+
+
+async def run_tests(project: Path) -> tuple[bool, str]:
+    """Üretilen testleri Codex'in sandbox'ında çalıştırır: sadece proje klasörüne yazabilir, internet yok.
+    Ajanın 'testler geçti' raporuna güvenmeyiz, sonucu bu belirler."""
+    rc, out = await sh(["codex", "sandbox", "-c", 'sandbox_mode="workspace-write"', *TEST_CMD],
+                       project, TEST_TIMEOUT, {"PYTHONDONTWRITEBYTECODE": "1"})
+    return rc == 0, out[-3000:]
+
+
+# ---------- aşamalar ----------
+
+async def make_plan(run: Run, ctx: dict, note: str = "") -> Plan:
+    task = "Write the build plan for this idea."
+    if note:
+        task += f" The team rejected the previous plan with this feedback, follow it: {note}"
+    _, plan = await call_first(run, "build_plan", ["claude", "gpt"], "planner", task, ctx, Plan)
+    plan.tasks = plan.tasks[:MAX_TASKS]
+    run.save("plan", plan.model_dump())
+    run.emit("plan", plan.model_dump())
+    return plan
+
+
+async def setup_project(run: Run, plan: Plan, ctx: dict) -> Path:
+    project = PROJECTS / run.dir.name
+    if project.exists() and any(project.iterdir()):
+        raise RunnerError(f"{project} zaten var ve boş değil. Sil veya başka bir tur seç.")
+    (project / "tests").mkdir(parents=True, exist_ok=True)
+    (project / "app").mkdir(exist_ok=True)
+
+    # Codex bu dosyayı kendiliğinden okur: kodlayıcının skill'i + projenin bağlamı
+    agents = (SKILLS / "coder.md").read_text() + "\n\n## This project\n" + json.dumps(
+        {"idea": ctx["idea"], "selected_features": ctx.get("selected_features", []),
+         "hours": ctx["hours"], "plan": plan.summary, "file_tree": plan.file_tree},
+        indent=2, ensure_ascii=False)
+    (project / "AGENTS.md").write_text(agents)
+    (project / ".gitignore").write_text(".venv/\n__pycache__/\n*.pyc\n.env\n.env.*\n*.log\n.DS_Store\n")
+    (project / "tests" / "__init__.py").touch()
+
+    # Sızıntı koruması üretilen projeye de kurulur (sandbox okumayı engellemiyor)
+    (project / "scripts").mkdir(exist_ok=True)
+    (project / ".githooks").mkdir(exist_ok=True)
+    shutil.copy(ROOT / "scripts" / "pre-push-check.sh", project / "scripts" / "pre-push-check.sh")
+    shutil.copy(ROOT / ".githooks" / "pre-push", project / ".githooks" / "pre-push")
+
+    rc, out = await sh(["python3", "-m", "venv", "--system-site-packages", ".venv"], project)
+    if rc != 0:
+        raise RunnerError(f"venv kurulamadı: {out[-300:]}")
+    await git(project, "init", "-q", "-b", "main")
+    await git(project, "config", "core.hooksPath", ".githooks")
+    await git(project, "add", "-A")
+    await git(project, "commit", "-qm", "Proje iskeleti (HackathonBuilder)")
+    run.emit("project", {"path": str(project)})
+    return project
+
+
+async def install_packages(run: Run, project: Path, packages: list[str]):
+    """Sandbox'ta internet yok: onaylanan paketleri biz kurarız (sandbox dışında, kullanıcı onayıyla)."""
+    rc, out = await sh([".venv/bin/python", "-m", "pip", "install", "-q", *packages], project, 600)
+    if rc != 0:
+        raise RunnerError(f"paket kurulumu başarısız: {out[-400:]}")
+    run.emit("packages_installed", {"packages": packages})
+
+
+async def build_task(run: Run, project: Path, plan: Plan, i: int) -> dict:
+    t = plan.tasks[i]
+    stage = f"build_{t.id}"
+    run.begin(stage)
+    schema = json_schema(CodeReport)
+    task_text = json.dumps(t.model_dump(), ensure_ascii=False)
+    done_before = [f"{x.id} {x.title}" for x in plan.tasks[:i]]
+
+    run.emit("task", {"id": t.id, "title": t.title, "status": "coding"})
+    await timed_code(run, stage, project,
+                     f"Implement this task: {task_text}\nAlready done: {done_before}\n"
+                     "Follow AGENTS.md. Write tests, run them, then report.", schema)
+
+    # Test → düzeltme döngüsü (sonucu BİZİM test çalıştırmamız belirler)
+    attempts = 0
+    ok, out = await run_tests(project)
+    run.emit("test", {"id": t.id, "ok": ok, "attempt": attempts, "output": out[-1500:]})
+    while not ok and attempts < MAX_FIX:
+        attempts += 1
+        run.emit("task", {"id": t.id, "title": t.title, "status": f"fixing {attempts}/{MAX_FIX}"})
+        await timed_code(run, stage, project,
+                         f"The tests fail after task {t.id}. Fix the code (or a wrong test) so all tests pass. "
+                         f"Test output:\n{out}", schema)
+        ok, out = await run_tests(project)
+        run.emit("test", {"id": t.id, "ok": ok, "attempt": attempts, "output": out[-1500:]})
+
+    # Güvenlik incelemesi: Claude araçsız, diff'i metin olarak görür
+    run.emit("task", {"id": t.id, "title": t.title, "status": "security review"})
+    await git(project, "add", "-A")
+    diff = (await git(project, "diff", "--cached"))[:20000]
+    findings = []
+    if diff.strip():
+        try:
+            _, review = await call_first(run, stage, ["claude", "gpt"], "security-reviewer",
+                                         f"Review the diff of task {t.id}.", {"task": t.model_dump(), "diff": diff},
+                                         SecurityReview)
+            findings = [f.model_dump() for f in review.findings]
+        except RunnerError as e:
+            run.emit("error", {"stage": stage, "model": "security", "error": str(e)})
+    high = [f for f in findings if f["severity"] == "high"]
+    run.emit("security", {"id": t.id, "findings": findings})
+    if high:
+        run.emit("task", {"id": t.id, "title": t.title, "status": "fixing security"})
+        await timed_code(run, stage, project,
+                         f"Fix these HIGH severity security findings, keep tests passing: {json.dumps(high)}", schema)
+        ok, out = await run_tests(project)
+        run.emit("test", {"id": t.id, "ok": ok, "attempt": attempts + 1, "output": out[-1500:]})
+
+    await git(project, "add", "-A")
+    status = "done" if ok else "tests failing"
+    await git(project, "commit", "-qm", f"{t.id}: {t.title}" + ("" if ok else " (testler kırık)"), "--allow-empty")
+    result = {"id": t.id, "title": t.title, "status": status, "tests_ok": ok, "fix_attempts": attempts,
+              "findings": findings, "high_fixed": bool(high)}
+    run.emit("task", result)
+    return result
+
+
+async def timed_code(run: Run, stage: str, project: Path, prompt: str, schema: dict) -> dict:
+    t0 = time.monotonic()
+    try:
+        r = await code(project, prompt, schema)
+    except RunnerError:
+        run.timing(stage, "gpt", t0, ok=False)
+        raise
+    run.timing(stage, "gpt", t0, ok=True)
+    return r
+
+
+# ---------- boru hattı ----------
+
+async def run_build(run_dir: Path, emit, approve) -> dict:
+    """approve(kind, data) → {"ok": bool, "note": str}. kind: "plan" | "packages"."""
+    run = Run(run_dir, emit)
+    decision = run.load("decision")
+    ctx = {"brief": run.load("refined"), **run.load("input"), "idea": decision["chosen"]["idea"]}
+    ctx["brief"].pop("model", None)
+    if (run.dir / "research_decision.json").exists():
+        ctx["selected_features"] = run.load("research_decision")["features"]
+
+    try:
+        run.begin("build_plan")
+        plan = await make_plan(run, ctx)
+        answer = await approve("plan", plan.model_dump())
+        if not answer["ok"] and answer.get("note"):  # geri bildirimle bir kez yeniden planla
+            plan = await make_plan(run, ctx, answer["note"])
+            answer = await approve("plan", plan.model_dump())
+        if not answer["ok"]:
+            raise BuildStopped("plan reddedildi")
+
+        run.begin("build_setup")
+        project = await setup_project(run, plan, ctx)
+        if plan.packages:
+            answer = await approve("packages", {"packages": plan.packages})
+            if answer["ok"]:
+                await install_packages(run, project, plan.packages)
+            else:
+                (project / "AGENTS.md").write_text((project / "AGENTS.md").read_text() +
+                                                   f"\n\nDo NOT use these packages (not installed): {plan.packages}\n")
+
+        results = []
+        for i in range(len(plan.tasks)):
+            results.append(await build_task(run, project, plan, i))
+    except RunnerError as e:
+        run.save_timings("build_timings")
+        run.emit("fatal", {"error": str(e)})
+        raise
+
+    ok, out = await run_tests(project)
+    result = {"project": str(project), "tasks": results, "all_tests_ok": ok, "final_test_output": out[-1500:],
+              "run_command": ".venv/bin/python -m uvicorn app.main:app --port 8001",
+              "demo_steps": plan.demo_steps}
+    run.save("build", result)
+    total, stages = run.save_timings("build_timings")
+    run.emit("build", result)
+    run.emit("done", {"run_dir": run.dir.name, "total": total, "stages": stages})
+    return result
+
+
+# ---------- terminal ----------
+
+async def terminal_approve(kind: str, data: dict) -> dict:
+    if kind == "plan":
+        print(f"\n📋 PLAN: {data['summary']}")
+        for t in data["tasks"]:
+            print(f"  {t['id']} {t['title']} — {t['goal']}")
+        print(f"  paketler: {data['packages'] or 'yok'}")
+    else:
+        print(f"\n📦 Kurulacak pip paketleri (internetten indirilecek): {data['packages']}")
+    ans = (await asyncio.to_thread(input, "Onaylıyor musun? (e = evet / not yaz = düzelt / boş = hayır): ")).strip()
+    if ans.lower() in ("e", "evet", "y", "yes"):
+        return {"ok": True, "note": ""}
+    return {"ok": False, "note": ans}
+
+
+def print_event(event: str, d: dict):
+    if event == "stage":
+        print(f"\n▶ {d['stage']}")
+    elif event == "project":
+        print(f"  📁 {d['path']}")
+    elif event == "task":
+        print(f"  [{d['id']}] {d['title']} — {d['status']}")
+    elif event == "test":
+        print(f"    {'✓' if d['ok'] else '✗'} testler (deneme {d['attempt']})")
+    elif event == "security":
+        sev = [f["severity"] for f in d["findings"]]
+        print(f"    🔒 {len(sev)} bulgu {sev if sev else ''}")
+    elif event == "timing":
+        print(f"    ⏱ {d['model']} {d['seconds']:.0f}s {'' if d['ok'] else '✗'}")
+    elif event == "error":
+        print(f"    ✗ {d['stage']} / {d['model']}: {d['error'][:200]}")
+    elif event == "fatal":
+        print(f"\n✗ DURDU: {d['error']}")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("run_dir", help="decision.json içeren tur klasörü")
+    a = ap.parse_args()
+    run_dir = Path(a.run_dir)
+    if not run_dir.exists():
+        run_dir = RUNS / a.run_dir
+    if not (run_dir / "decision.json").exists():
+        raise SystemExit(f"{run_dir}/decision.json yok. Önce bir fikir seç.")
+    r = asyncio.run(run_build(run_dir, print_event, terminal_approve))
+    print(f"\n🏁 {sum(t['tests_ok'] for t in r['tasks'])}/{len(r['tasks'])} görev testleri geçti · "
+          f"son test: {'✓' if r['all_tests_ok'] else '✗'}")
+    print(f"📁 {r['project']}\n▶ cd {r['project']} && {r['run_command']}")
+
+
+if __name__ == "__main__":
+    main()
