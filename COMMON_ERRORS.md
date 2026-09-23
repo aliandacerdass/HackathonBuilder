@@ -17,6 +17,8 @@
 | Paralel aşama en yavaş model kadar sürer | 2 model 15s'de bitip Gemini'yi 84s bekledi | Darboğazı `timings.json`'dan bul; o modeli hızlandır |
 | Uzun model çıktısı her şeyi yavaşlatır | Fikir ~3200 karakter → tur 2 ve jüri girdisi şişti | Skill'lere kelime/madde sınırı koy |
 | Arka plan izleyicisi sonsuza kadar bekledi | "Yeni klasör açılsın" beklerken klasör zaten açılmıştı | Tetikleyiciden SONRA değil, bilinen hedefi izle |
+| Claude Code `Write` klasör dışına yazar | `acceptEdits` modunda `../outside.txt` izinsiz oluştu | Kod yazdırma SADECE Codex `-s workspace-write`; Claude'a dosya aracı verme |
+| `--allowedTools` prompt'u yuttu | `Input must be provided... when using --print` | Araçları virgülle tek argüman ver (`"Read,Edit"`) veya prompt'tan önce `--` koy |
 | agy uzun işte timeout | Yarım çıktı | Tek çağrıya tek iş, `--print-timeout` ver |
 
 ## Her Değişiklik Sonrası Kontrol Listesi
