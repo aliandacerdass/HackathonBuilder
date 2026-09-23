@@ -78,3 +78,56 @@ def json_schema(model: type[BaseModel]) -> dict:
         return node
 
     return fix(raw)
+
+
+# ---------- V2: araştırma ----------
+
+class Queries(BaseModel):
+    """Sorgu yazıcı: seçilen fikirden her kaynak için arama sorgusu."""
+    paper_queries: list[str]    # akademik terimler (OpenAlex)
+    repo_queries: list[str]     # kısa GitHub arama terimleri
+    web_queries: list[str]      # makale, haber, hackathon kazananları
+    video_queries: list[str]    # YouTube demo / anlatım
+
+
+class Source(BaseModel):
+    title: str
+    url: str
+    kind: str                   # article | hackathon | video | other
+    finding: str                # somut bilgi, mümkünse sayı
+
+
+class WebFindings(BaseModel):
+    sources: list[Source]
+
+
+class RepoPick(BaseModel):
+    name: str                   # owner/repo (verilen listeden)
+    reuse: str                  # projeye ne alınabilir
+    caution: str                # lisans, bakım, kalite uyarısı
+
+
+class RepoReview(BaseModel):
+    picks: list[RepoPick]
+
+
+class Stat(BaseModel):
+    claim: str                  # tam cümle
+    value: str                  # ör. "53.9%"
+    source_url: str             # verilen kaynaklardan biri OLMALI
+    pitch_use: str              # jüri sunumunda nasıl kullanılır
+
+
+class Stats(BaseModel):
+    stats: list[Stat]
+
+
+class Feature(BaseModel):
+    name: str
+    why: str                    # jüri / kullanıcı için değeri
+    effort: str                 # low | medium | high (verilen sürede)
+    source_urls: list[str]      # ilham aldığı kaynaklar (verilenlerden)
+
+
+class Features(BaseModel):
+    features: list[Feature]

@@ -36,11 +36,11 @@ def build_prompt(skill: str, task: str, data: dict) -> str:
 
 
 async def call(run: "Run", stage: str, model: str, skill: str, task: str, data: dict,
-               out: type[BaseModel]):
+               out: type[BaseModel], web: bool = False):
     """ask() + pydantic doğrulama + süre ölçümü. Şemaya uymayan cevap da hata sayılır."""
     t0 = time.monotonic()
     try:
-        raw = await ask(model, build_prompt(skill, task, data), json_schema(out))
+        raw = await ask(model, build_prompt(skill, task, data), json_schema(out), web=web)
         try:
             result = out.model_validate(raw)
         except ValidationError as e:
@@ -64,18 +64,27 @@ async def call_first(run: "Run", stage: str, models: list[str], *args):
 
 
 class Run:
-    """Tek çalıştırmanın klasörü + olay yayını."""
+    """Tek çalıştırmanın klasörü + olay yayını. Mevcut klasörü açar (V2 araştırma aynı klasöre yazar)."""
 
-    def __init__(self, brief: dict, emit):
-        tr = str.maketrans("çğıöşüÇĞİÖŞÜ", "cgiosuCGIOSU")
-        slug = re.sub(r"[^a-z0-9]+", "-", brief["topic"].translate(tr).lower()).strip("-")[:40]
-        self.dir = RUNS / f"{datetime.now():%Y%m%d-%H%M%S}-{slug}"
-        self.dir.mkdir(parents=True)
+    def __init__(self, run_dir: Path, emit):
+        self.dir = run_dir
         self.emit = emit
         self.t0 = time.monotonic()
         self.calls: list[dict] = []     # her model çağrısı: aşama, model, süre, başarı
         self.stages: dict[str, float] = {}  # aşama → başlangıç (saniye, t0'a göre)
-        self.save("input", brief)
+
+    @classmethod
+    def new(cls, brief: dict, emit) -> "Run":
+        tr = str.maketrans("çğıöşüÇĞİÖŞÜ", "cgiosuCGIOSU")
+        slug = re.sub(r"[^a-z0-9]+", "-", brief["topic"].translate(tr).lower()).strip("-")[:40]
+        run_dir = RUNS / f"{datetime.now():%Y%m%d-%H%M%S}-{slug}"
+        run_dir.mkdir(parents=True)
+        run = cls(run_dir, emit)
+        run.save("input", brief)
+        return run
+
+    def load(self, name: str):
+        return json.loads((self.dir / f"{name}.json").read_text())
 
     def begin(self, stage: str):
         self.stages[stage] = round(time.monotonic() - self.t0, 1)
@@ -86,12 +95,12 @@ class Run:
         self.calls.append(d)
         self.emit("timing", d)
 
-    def save_timings(self):
+    def save_timings(self, name: str = "timings"):
         total = round(time.monotonic() - self.t0, 1)
         names = list(self.stages)
         ends = [self.stages[n] for n in names[1:]] + [total]
         stages = {n: round(e - self.stages[n], 1) for n, e in zip(names, ends)}
-        self.save("timings", {"total": total, "stages": stages, "calls": self.calls})
+        self.save(name, {"total": total, "stages": stages, "calls": self.calls})
         return total, stages
 
     def save(self, name: str, data):
@@ -195,7 +204,7 @@ async def judge(run: Run, ctx: dict, ideas: dict[str, Idea], meta: dict[str, dic
 
 async def run_pipeline(topic: str, hours: int, team: str, emit) -> tuple[Run, list[dict]]:
     brief = {"topic": topic, "hours": hours, "team": team}
-    run = Run(brief, emit)
+    run = Run.new(brief, emit)
     try:
         refined = await refine(run, brief)
         ctx = {"brief": refined.model_dump(), "hours": hours, "team": team}

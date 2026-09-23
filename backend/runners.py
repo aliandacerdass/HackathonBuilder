@@ -60,8 +60,10 @@ def _with_model(cmd: list[str], model: str) -> list[str]:
     return cmd + ["--model", name] if name else cmd
 
 
-async def _claude(prompt: str, schema: dict, wd: Path) -> dict:
-    cmd = _with_model(["claude", "-p", "--output-format", "json", "--tools", "",
+async def _claude(prompt: str, schema: dict, wd: Path, web: bool) -> dict:
+    # web=True: SADECE arama/okuma araçları (dosya yazma, komut çalıştırma yok)
+    tools = ["--tools", "WebSearch,WebFetch", "--allowedTools", "WebSearch", "WebFetch"] if web else ["--tools", ""]
+    cmd = _with_model(["claude", "-p", "--output-format", "json", *tools,
                        "--json-schema", json.dumps(schema)], "claude")
     data = json.loads(await _run(cmd + [prompt], wd))
     if data.get("is_error"):
@@ -69,15 +71,18 @@ async def _claude(prompt: str, schema: dict, wd: Path) -> dict:
     return data["structured_output"]
 
 
-async def _gpt(prompt: str, schema: dict, wd: Path) -> dict:
+async def _gpt(prompt: str, schema: dict, wd: Path, web: bool) -> dict:
     (wd / "schema.json").write_text(json.dumps(schema))
-    cmd = _with_model(["codex", "exec", "--skip-git-repo-check", "-s", "read-only",
+    search = ["--search"] if web else []  # codex'te --search, exec'ten ÖNCE gelir
+    cmd = _with_model(["codex", *search, "exec", "--skip-git-repo-check", "-s", "read-only",
                        "--output-schema", "schema.json", "-o", "out.json"], "gpt")
     await _run(cmd + [prompt], wd)
     return json.loads((wd / "out.json").read_text())
 
 
-async def _gemini(prompt: str, schema: dict, wd: Path) -> dict:
+async def _gemini(prompt: str, schema: dict, wd: Path, web: bool) -> dict:
+    if web:  # agy headless'ta izinsiz arama yapmıyor; izin atlama bilerek KULLANILMIYOR
+        raise RunnerError("gemini: web araması kapalı (sadece analiz rolü)")
     (wd / "schema.json").write_text(json.dumps(schema))
     # agy: tüm bayraklar --print'ten ÖNCE. Süre sınırını agy değil _run() uygular
     # (agy kendi timeout'unda normal hata verir, RunnerTimeout olarak tanınmazdı)
@@ -91,15 +96,16 @@ async def _gemini(prompt: str, schema: dict, wd: Path) -> dict:
 RUNNERS = {"claude": _claude, "gpt": _gpt, "gemini": _gemini}
 
 
-async def ask(model: str, prompt: str, schema: dict, retries: int = 1) -> dict:
-    """Modele sorar, şemaya uygun dict döner. Başarısızsa `retries` kez tekrar dener."""
+async def ask(model: str, prompt: str, schema: dict, retries: int = 1, web: bool = False) -> dict:
+    """Modele sorar, şemaya uygun dict döner. Başarısızsa `retries` kez tekrar dener.
+    web=True: model web'de arama yapabilir (sadece claude ve gpt)."""
     last = None
     WORK_ROOT.mkdir(parents=True, exist_ok=True)
     for _ in range(retries + 1):
         # Her çağrıya boş klasör: CLI proje dosyalarını görmez (temiz context)
         with tempfile.TemporaryDirectory(dir=WORK_ROOT) as wd:
             try:
-                return await RUNNERS[model](prompt, schema, Path(wd))
+                return await RUNNERS[model](prompt, schema, Path(wd), web)
             except RunnerTimeout as e:
                 raise RunnerTimeout(f"{model}: {e}")
             except (RunnerError, json.JSONDecodeError, KeyError) as e:
