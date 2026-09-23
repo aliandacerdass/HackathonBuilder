@@ -1,0 +1,28 @@
+# --- Gizli / kimlik bilgisi ---
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*credentials*
+*secret*
+*token*
+.codex/
+.gemini/
+.claude/settings.local.json
+
+# --- Kullanıcı verisi (fikirler + model çıktıları) ---
+runs/
+
+# --- Log / geçici ---
+*.log
+tmp/
+
+# --- Python ---
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# --- Sistem ---
+.DS_Store
