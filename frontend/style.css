@@ -89,6 +89,7 @@ button { font: 500 14px var(--body); cursor: pointer; border-radius: 8px; }
 .lane.busy > header i { animation: pulse 1.2s ease-in-out infinite; }
 .lane .status { margin-left: auto; color: var(--muted); font-weight: 400; }
 .lane.down .status { color: var(--danger); }
+.lane .time { color: var(--muted); margin: -8px 0 12px; }
 .cards { display: flex; flex-direction: column; gap: 12px; }
 
 .idea {
@@ -148,7 +149,11 @@ details ul { margin: 0; padding-left: 18px; }
 }
 
 @media (max-width: 860px) {
-  .top { padding: 12px 16px; gap: 12px; }
+  .top { padding: 12px 16px; gap: 8px 12px; }
+  .clock { margin-left: auto; }
+  /* ray tek satır, kendi içinde kayar: sabit başlık ekranı yemesin */
+  .rail { order: 3; flex: 0 0 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .rail li { white-space: nowrap; }
   main { padding: 32px 16px 64px; }
   .lanes { grid-template-columns: 1fr; }
   .score { grid-template-columns: 36px 1fr; }

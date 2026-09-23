@@ -15,5 +15,5 @@ Give honest, comparable scores so the team can pick the idea most likely to win.
 - Score EVERY idea in the input exactly once, using its `idea_id`.
 - Use the full range. Do not give everything 7-8. The best and worst ideas must be clearly separated.
 - Ideas are anonymous. Judge only the content.
-- `reasoning`: 1-2 sentences, the main reason for the scores.
+- `reasoning`: max 30 words, the main reason for the scores.
 - Write in English.

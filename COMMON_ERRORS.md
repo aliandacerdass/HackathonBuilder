@@ -14,6 +14,9 @@
 | CSS grid `auto` sütun genişler | Puan sayıları cetvelden kopup en sağa kaydı | `max-content` + `justify-content: start` |
 | Hook e-posta yanlış alarmı | `+@app.get` e-posta sanıldı, push durdu | Diff'in baştaki `+` işaretini sil; e-posta kalıbı harf/rakamla başlasın |
 | Test commit'ini `reset --hard` ile geri almak | Commit edilmemiş değişiklikler de silindi | Önce gerçek değişiklikleri commit'le, ya da `git reset --soft HEAD~1` + test dosyasını elle sil |
+| Paralel aşama en yavaş model kadar sürer | 2 model 15s'de bitip Gemini'yi 84s bekledi | Darboğazı `timings.json`'dan bul; o modeli hızlandır |
+| Uzun model çıktısı her şeyi yavaşlatır | Fikir ~3200 karakter → tur 2 ve jüri girdisi şişti | Skill'lere kelime/madde sınırı koy |
+| Arka plan izleyicisi sonsuza kadar bekledi | "Yeni klasör açılsın" beklerken klasör zaten açılmıştı | Tetikleyiciden SONRA değil, bilinen hedefi izle |
 | agy uzun işte timeout | Yarım çıktı | Tek çağrıya tek iş, `--print-timeout` ver |
 
 ## Her Değişiklik Sonrası Kontrol Listesi

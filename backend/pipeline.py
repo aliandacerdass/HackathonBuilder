@@ -7,6 +7,7 @@ import argparse
 import asyncio
 import json
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -34,21 +35,29 @@ def build_prompt(skill: str, task: str, data: dict) -> str:
     return f"{rules}\n\n# Task\n{task}\n\n# Input\n```json\n{body}\n```"
 
 
-async def call(model: str, skill: str, task: str, data: dict, out: type[BaseModel]):
-    """ask() + pydantic doğrulama. Şemaya uymayan cevap da hata sayılır."""
-    raw = await ask(model, build_prompt(skill, task, data), json_schema(out))
+async def call(run: "Run", stage: str, model: str, skill: str, task: str, data: dict,
+               out: type[BaseModel]):
+    """ask() + pydantic doğrulama + süre ölçümü. Şemaya uymayan cevap da hata sayılır."""
+    t0 = time.monotonic()
     try:
-        return out.model_validate(raw)
-    except ValidationError as e:
-        raise RunnerError(f"{model}: şemaya uymayan cevap: {e.errors()[0]['msg']}")
+        raw = await ask(model, build_prompt(skill, task, data), json_schema(out))
+        try:
+            result = out.model_validate(raw)
+        except ValidationError as e:
+            raise RunnerError(f"{model}: şemaya uymayan cevap: {e.errors()[0]['msg']}")
+    except RunnerError:
+        run.timing(stage, model, t0, ok=False)
+        raise
+    run.timing(stage, model, t0, ok=True)
+    return result
 
 
-async def call_first(models: list[str], *args):
+async def call_first(run: "Run", stage: str, models: list[str], *args):
     """Modelleri sırayla dener, ilk başaranı döner: (model, sonuç)."""
     errors = []
     for m in models:
         try:
-            return m, await call(m, *args)
+            return m, await call(run, stage, m, *args)
         except RunnerError as e:
             errors.append(str(e))
     raise RunnerError("hiçbir model cevap vermedi: " + " | ".join(errors))
@@ -63,7 +72,27 @@ class Run:
         self.dir = RUNS / f"{datetime.now():%Y%m%d-%H%M%S}-{slug}"
         self.dir.mkdir(parents=True)
         self.emit = emit
+        self.t0 = time.monotonic()
+        self.calls: list[dict] = []     # her model çağrısı: aşama, model, süre, başarı
+        self.stages: dict[str, float] = {}  # aşama → başlangıç (saniye, t0'a göre)
         self.save("input", brief)
+
+    def begin(self, stage: str):
+        self.stages[stage] = round(time.monotonic() - self.t0, 1)
+        self.emit("stage", {"stage": stage})
+
+    def timing(self, stage: str, model: str, t0: float, ok: bool):
+        d = {"stage": stage, "model": model, "seconds": round(time.monotonic() - t0, 1), "ok": ok}
+        self.calls.append(d)
+        self.emit("timing", d)
+
+    def save_timings(self):
+        total = round(time.monotonic() - self.t0, 1)
+        names = list(self.stages)
+        ends = [self.stages[n] for n in names[1:]] + [total]
+        stages = {n: round(e - self.stages[n], 1) for n, e in zip(names, ends)}
+        self.save("timings", {"total": total, "stages": stages, "calls": self.calls})
+        return total, stages
 
     def save(self, name: str, data):
         (self.dir / f"{name}.json").write_text(json.dumps(data, indent=2, ensure_ascii=False))
@@ -72,9 +101,9 @@ class Run:
 # ---------- aşamalar ----------
 
 async def refine(run: Run, brief: dict) -> Refined:
-    run.emit("stage", {"stage": "refine"})
+    run.begin("refine")
     model, refined = await call_first(
-        FALLBACK, "refiner", "Turn this hackathon theme into a precise brief.", brief, Refined)
+        run, "refine", FALLBACK, "refiner", "Turn this hackathon theme into a precise brief.", brief, Refined)
     run.save("refined", {"model": model, **refined.model_dump()})
     run.emit("refined", {"model": model, **refined.model_dump()})
     return refined
@@ -91,12 +120,12 @@ async def council(run: Run, ctx: dict) -> tuple[dict[str, Idea], dict[str, dict]
         run.emit("idea", {"idea_id": iid, **meta[iid], **idea.model_dump()})
 
     # Tur 1 — bağımsız: modeller birbirini görmez (anchoring önlenir)
-    run.emit("stage", {"stage": "council_round1"})
+    run.begin("council_round1")
     task1 = f"Propose exactly {IDEAS_PER_MEMBER} clearly different hackathon ideas for this brief."
 
     async def round1(m):
         try:
-            r = await call(m, "council-member", task1, ctx, Ideas)
+            r = await call(run, "council_round1", m, "council-member", task1, ctx, Ideas)
         except RunnerError as e:
             run.emit("error", {"stage": "council_round1", "model": m, "error": str(e)})
             return
@@ -112,7 +141,7 @@ async def council(run: Run, ctx: dict) -> tuple[dict[str, Idea], dict[str, dict]
     members = sorted({meta[i]["author"] for i in ideas})
     critiques = []
     if len(members) >= 2:
-        run.emit("stage", {"stage": "council_round2"})
+        run.begin("council_round2")
         pool = {i: ideas[i].model_dump() for i in ideas}
 
         async def round2(m):
@@ -121,7 +150,8 @@ async def council(run: Run, ctx: dict) -> tuple[dict[str, Idea], dict[str, dict]
                      "Then propose ONE improved idea: a stronger version of the best idea, "
                      "or a combination of the strongest parts of several ideas.")
             try:
-                r = await call(m, "council-member", task2, {**ctx, "ideas": pool}, Round2)
+                r = await call(run, "council_round2", m, "council-member", task2,
+                               {**ctx, "ideas": pool}, Round2)
             except RunnerError as e:
                 run.emit("error", {"stage": "council_round2", "model": m, "error": str(e)})
                 return
@@ -139,10 +169,10 @@ async def council(run: Run, ctx: dict) -> tuple[dict[str, Idea], dict[str, dict]
 
 
 async def judge(run: Run, ctx: dict, ideas: dict[str, Idea], meta: dict[str, dict]) -> list[dict]:
-    run.emit("stage", {"stage": "judge"})
+    run.begin("judge")
     data = {**ctx, "ideas": {i: ideas[i].model_dump() for i in ideas}}  # yazar bilgisi YOK
     model, verdict = await call_first(
-        FALLBACK, "judge", "Score every idea in `ideas`.", data, Verdict)
+        run, "judge", FALLBACK, "judge", "Score every idea in `ideas`.", data, Verdict)
 
     scores = {s.idea_id: s for s in verdict.scores if s.idea_id in ideas}
     ranking = []
@@ -172,9 +202,11 @@ async def run_pipeline(topic: str, hours: int, team: str, emit) -> tuple[Run, li
         ideas, meta = await council(run, ctx)
         ranking = await judge(run, ctx, ideas, meta)
     except RunnerError as e:
+        run.save_timings()
         run.emit("fatal", {"error": str(e)})
         raise
-    run.emit("done", {"run_dir": run.dir.name})
+    total, stages = run.save_timings()
+    run.emit("done", {"run_dir": run.dir.name, "total": total, "stages": stages})
     return run, ranking
 
 
@@ -195,6 +227,8 @@ def print_event(event: str, d: dict):
         print(f"  {d['idea_id']} [{d['author']}, tur {d['round']}] {d['title']} — {d['pitch']}")
     elif event == "critique":
         print(f"  {d['by']} → {d['idea_id']}: -{'; '.join(d['weaknesses'][:1])}")
+    elif event == "timing":
+        print(f"  ⏱ {d['model']:<7} {d['seconds']:6.1f}s {'' if d['ok'] else '✗'}")
     elif event == "error":
         print(f"  ✗ {d['stage']} / {d['model']}: {d['error'][:200]}")
     elif event == "fatal":
@@ -209,6 +243,8 @@ def main():
     a = ap.parse_args()
 
     run, ranking = asyncio.run(run_pipeline(a.topic, a.hours, a.team, print_event))
+    t = json.loads((run.dir / "timings.json").read_text())
+    print(f"\n⏱ Toplam {t['total']}s — " + ", ".join(f"{k} {v}s" for k, v in t["stages"].items()))
 
     print("\n🏆 SIRALAMA")
     for r in ranking:

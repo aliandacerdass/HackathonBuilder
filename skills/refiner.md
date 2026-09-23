@@ -12,3 +12,4 @@ Make the theme unambiguous and actionable, so idea generators do not waste time 
 - `keywords`: 5-10 search keywords useful for later research.
 - Do not invent facts about a specific real event.
 - Write in English.
+- Length: `topic` max 40 words; each criterion and constraint max 15 words.

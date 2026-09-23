@@ -6,6 +6,7 @@ const CRITERIA = [
   ["originality", "Özgünlük"], ["demo", "Demo"],
 ];
 const STAGES = ["input", "refine", "council_round1", "council_round2", "judge", "decision"];
+const STAGE_NAMES = { refine: "Netleştirme", council_round1: "Konsey I", council_round2: "Konsey II", judge: "Jüri" };
 
 function el(tag, cls, text) {
   const n = document.createElement(tag);
@@ -18,6 +19,7 @@ let runId = null;
 let source = null;
 const ideaCards = {};   // idea_id → kart elemanı (eleştiriler altına eklenir)
 const ideaCount = {};   // model → fikir sayısı
+const seconds = {};     // "aşama:model" → süre (saniye)
 
 // ---------- aşama rayı + saat ----------
 function setStage(stage) {
@@ -59,9 +61,19 @@ const handlers = {
     if (stage === "judge") Object.keys(NAMES).forEach((m) => setLane(m, `${ideaCount[m] || 0} fikir`));
   },
 
+  timing(d) {
+    seconds[`${d.stage}:${d.model}`] = d.seconds;
+    if (!d.stage.startsWith("council")) return;
+    const l = lane(d.model);
+    let t = l.querySelector(".time");
+    if (!t) { t = el("p", "time mono"); l.querySelector("header").after(t); }
+    const part = `${STAGE_NAMES[d.stage]} ${Math.round(d.seconds)}s${d.ok ? "" : " ✗"}`;
+    t.textContent = t.textContent ? `${t.textContent} · ${part}` : part;
+  },
+
   refined(d) {
     $("#brief-topic").textContent = d.topic;
-    $("#brief-by").textContent = `· ${NAMES[d.model]}`;
+    $("#brief-by").textContent = `· ${NAMES[d.model]} · ${Math.round(seconds[`refine:${d.model}`] || 0)}s`;
     const ul = $("#criteria");
     ul.replaceChildren(...d.jury_criteria.map((c) => el("li", null, c)));
   },
@@ -94,9 +106,14 @@ const handlers = {
     console.warn(d);
   },
 
-  ranking(d) { renderRanking(d.ranking); },
+  ranking(d) {
+    renderRanking(d.ranking);
+    $("#judge-by").textContent = `Jüri: ${NAMES[d.judge]}, ${Math.round(seconds[`judge:${d.judge}`] || 0)}s.`;
+  },
 
-  done() {
+  done(d) {
+    $("#timings").textContent = "Süre: " + Object.entries(d.stages)
+      .map(([k, v]) => `${STAGE_NAMES[k]} ${Math.round(v)}s`).join(" · ") + ` · toplam ${Math.round(d.total)}s`;
     setStage("decision");
     stopClock();
     source.close();

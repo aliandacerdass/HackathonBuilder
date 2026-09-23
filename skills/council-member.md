@@ -13,3 +13,9 @@ Produce hackathon ideas that can win: they fit the jury criteria, can really be 
 - When critiquing: be specific and fair. Name real weaknesses, not style preferences.
 - When improving: you may combine the best parts of several ideas, including other members' ideas.
 - Write in English.
+
+# Length limits (strict: short text is faster to write, read and judge)
+- `title`: max 8 words. `pitch`: max 25 words.
+- `problem`, `solution`, `wow_factor`: max 40 words each.
+- `mvp_scope`: max 5 items, max 12 words each. `risks`: max 3 items, max 12 words each.
+- Critiques: `strengths` and `weaknesses` max 2 items each, max 20 words per item.

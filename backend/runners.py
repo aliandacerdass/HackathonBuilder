@@ -30,6 +30,10 @@ class RunnerError(Exception):
     pass
 
 
+class RunnerTimeout(RunnerError):
+    """Süre aşımı: tekrar denenmez (yoksa bekleme süresi ikiye katlanır)."""
+
+
 async def _run(cmd: list[str], cwd: Path) -> str:
     """Komutu çalıştırır, stdout döner. Hata/timeout → RunnerError."""
     try:
@@ -45,7 +49,7 @@ async def _run(cmd: list[str], cwd: Path) -> str:
         out, err = await asyncio.wait_for(proc.communicate(), TIMEOUT)
     except asyncio.TimeoutError:
         proc.kill()
-        raise RunnerError(f"{cmd[0]} {TIMEOUT}s içinde cevap vermedi")
+        raise RunnerTimeout(f"{cmd[0]} {TIMEOUT}s içinde cevap vermedi")
     if proc.returncode != 0:
         raise RunnerError(f"{cmd[0]} çıkış kodu {proc.returncode}: {err.decode()[-300:]}")
     return out.decode()
@@ -75,9 +79,9 @@ async def _gpt(prompt: str, schema: dict, wd: Path) -> dict:
 
 async def _gemini(prompt: str, schema: dict, wd: Path) -> dict:
     (wd / "schema.json").write_text(json.dumps(schema))
-    # agy: tüm bayraklar --print'ten ÖNCE
-    cmd = _with_model(["agy", "--output-format", "json", "--json-schema", "schema.json",
-                       "--print-timeout", f"{TIMEOUT}s"], "gemini")
+    # agy: tüm bayraklar --print'ten ÖNCE. Süre sınırını agy değil _run() uygular
+    # (agy kendi timeout'unda normal hata verir, RunnerTimeout olarak tanınmazdı)
+    cmd = _with_model(["agy", "--output-format", "json", "--json-schema", "schema.json"], "gemini")
     data = json.loads(await _run(cmd + ["--print", prompt], wd))
     if data.get("status") != "SUCCESS":
         raise RunnerError(f"agy: {data.get('status')}")
@@ -96,6 +100,8 @@ async def ask(model: str, prompt: str, schema: dict, retries: int = 1) -> dict:
         with tempfile.TemporaryDirectory(dir=WORK_ROOT) as wd:
             try:
                 return await RUNNERS[model](prompt, schema, Path(wd))
+            except RunnerTimeout as e:
+                raise RunnerTimeout(f"{model}: {e}")
             except (RunnerError, json.JSONDecodeError, KeyError) as e:
                 last = e
     raise RunnerError(f"{model}: {last}")
