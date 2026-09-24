@@ -76,7 +76,7 @@ Beklenen çıktı `10/10`. GitHub, key olmadan saatte 60 isteğe izin veriyor.
 
 ## Kullanım
 
-**Tarayıcıda:**
+**Tarayıcıda:** macOS'ta `HackathonBuilder.command` dosyasına çift tıkla: sunucu başlar, tarayıcı kendiliğinden açılır. Kapatmak için açılan Terminal penceresini kapat. Ya da terminalden:
 
 ```bash
 python -m backend.app
