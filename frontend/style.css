@@ -56,7 +56,7 @@ main { max-width: 1240px; margin: 0 auto; padding: 48px 32px 96px; }
 .fields { display: flex; gap: 16px; margin: 28px 0; flex-wrap: wrap; }
 .fields label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
 .fields .grow { flex: 1; min-width: 220px; }
-input {
+input, select {
   background: var(--panel); color: var(--cream); border: 1px solid var(--line);
   border-radius: 8px; padding: 10px 12px; font: inherit; font-size: 15px;
 }

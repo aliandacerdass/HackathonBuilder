@@ -4,7 +4,7 @@
 | Hata | Belirti | Çözüm |
 |---|---|---|
 | codex stdin bekliyor | Süreç canlı, CPU ~0, cevap yok | Komut sonuna `< /dev/null` |
-| codex Türkçe karakter düşürüyor | "cuzdan" (cüzdan yerine) | Model çıktıları İngilizce istenir; Türkçe metni Claude/Gemini yazar |
+| codex Türkçe karakter düşürüyor | "cuzdan" (cüzdan yerine) | Dil TR ise GPT çıktısı `fix_turkish()` ile Claude'dan geçer (başarısızsa GPT cevabı aynen kalır) |
 | agy görevi yanlış anlıyor | CLI dokümantasyonu araştırmaya gidiyor | Tüm bayraklar `--print`'ten ÖNCE |
 | agy sistem temp'te 503 | `Eligibility check failed: UNAVAILABLE (code 503)` — servis ayakta olsa bile | CLI'ı `/var/folders` yerine `~/.cache/hackathonbuilder/` altında çalıştır |
 | claude stdin uyarısı | `no stdin data received in 3s` | `stdin=DEVNULL` |

@@ -557,7 +557,7 @@ $("#intake").addEventListener("submit", async (e) => {
   const res = await fetch("/api/runs", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ topic: $("#topic").value, hours: Number($("#hours").value), team: $("#team").value }),
+    body: JSON.stringify({ topic: $("#topic").value, hours: Number($("#hours").value), team: $("#team").value, lang: $("#lang").value }),
   });
   const data = await res.json();
   if (!res.ok) {

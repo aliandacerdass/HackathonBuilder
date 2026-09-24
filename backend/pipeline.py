@@ -25,12 +25,22 @@ FALLBACK = ["claude", "gemini", "gpt"]  # refiner/judge: ilki düşerse sıradak
 IDEAS_PER_MEMBER = 2
 WEIGHTS = {"jury_fit": 0.25, "feasibility": 0.25, "wow": 0.2, "originality": 0.15, "demo": 0.15}
 
+# Kullanıcının okuduğu metni yazan skill'ler seçilen dilde yazar.
+# query-writer (arama sorgusu) ve coder (kod) her zaman İngilizce kalır.
+TRANSLATED = {"refiner", "council-member", "judge", "planner", "security-reviewer",
+              "feature-extractor", "stats-extractor", "web-researcher", "repo-reviewer"}
+LANG_RULE = {"tr": ("\n\n# Output language\nWrite every human-readable text value in Turkish, with correct "
+                    "Turkish characters (ç ğ ı ö ş ü). This overrides any 'Write in English' rule above. "
+                    "Keep JSON keys, enum values, ids, numbers, URLs, file paths and code identifiers unchanged.")}
+
 
 # ---------- yardımcılar ----------
 
-def build_prompt(skill: str, task: str, data: dict) -> str:
+def build_prompt(skill: str, task: str, data: dict, lang: str = "en") -> str:
     """Skill dosyası (rol + kurallar) + görev + girdi JSON'u = tek prompt."""
     rules = (SKILLS / f"{skill}.md").read_text()
+    if skill in TRANSLATED:
+        rules += LANG_RULE.get(lang, "")
     body = json.dumps(data, indent=2, ensure_ascii=False)
     return f"{rules}\n\n# Task\n{task}\n\n# Input\n```json\n{body}\n```"
 
@@ -40,16 +50,30 @@ async def call(run: "Run", stage: str, model: str, skill: str, task: str, data: 
     """ask() + pydantic doğrulama + süre ölçümü. Şemaya uymayan cevap da hata sayılır."""
     t0 = time.monotonic()
     try:
-        raw = await ask(model, build_prompt(skill, task, data), json_schema(out), web=web)
+        raw = await ask(model, build_prompt(skill, task, data, run.lang), json_schema(out), web=web)
         try:
             result = out.model_validate(raw)
         except ValidationError as e:
             raise RunnerError(f"{model}: şemaya uymayan cevap: {e.errors()[0]['msg']}")
+        if run.lang == "tr" and model == "gpt" and skill in TRANSLATED:
+            result = await fix_turkish(result, out)
     except RunnerError:
         run.timing(stage, model, t0, ok=False)
         raise
     run.timing(stage, model, t0, ok=True)
     return result
+
+
+async def fix_turkish(result: BaseModel, out: type[BaseModel]) -> BaseModel:
+    """GPT Türkçe karakterleri düşürüyor ("cuzdan"): Claude düzeltir. Olmazsa GPT'nin cevabı aynen kalır."""
+    prompt = ("Fix the Turkish in every text value of this JSON: restore missing Turkish characters (ç ğ ı ö ş ü) "
+              "and translate any English text to Turkish. Do not change the meaning, keys, enum values, ids, "
+              "numbers, URLs or file paths.\n\n```json\n"
+              + json.dumps(result.model_dump(), ensure_ascii=False) + "\n```")
+    try:
+        return out.model_validate(await ask("claude", prompt, json_schema(out)))
+    except (RunnerError, ValidationError):
+        return result
 
 
 async def call_first(run: "Run", stage: str, models: list[str], *args):
@@ -72,6 +96,8 @@ class Run:
         self.t0 = time.monotonic()
         self.calls: list[dict] = []     # her model çağrısı: aşama, model, süre, başarı
         self.stages: dict[str, float] = {}  # aşama → başlangıç (saniye, t0'a göre)
+        inp = run_dir / "input.json"  # dil turun başında seçilir; araştırma/kodlama da aynı dili kullanır
+        self.lang = json.loads(inp.read_text()).get("lang", "en") if inp.exists() else "en"
 
     @classmethod
     def new(cls, brief: dict, emit) -> "Run":
@@ -81,6 +107,7 @@ class Run:
         run_dir.mkdir(parents=True)
         run = cls(run_dir, emit)
         run.save("input", brief)
+        run.lang = brief.get("lang", "en")
         return run
 
     def load(self, name: str):
@@ -202,9 +229,9 @@ async def judge(run: Run, ctx: dict, ideas: dict[str, Idea], meta: dict[str, dic
     return ranking
 
 
-async def run_pipeline(topic: str, hours: int, team: str, emit) -> tuple[Run, list[dict]]:
+async def run_pipeline(topic: str, hours: int, team: str, emit, lang: str = "tr") -> tuple[Run, list[dict]]:
     brief = {"topic": topic, "hours": hours, "team": team}
-    run = Run.new(brief, emit)
+    run = Run.new({**brief, "lang": lang}, emit)
     try:
         refined = await refine(run, brief)
         ctx = {"brief": refined.model_dump(), "hours": hours, "team": team}
@@ -249,9 +276,10 @@ def main():
     ap.add_argument("topic")
     ap.add_argument("--hours", type=int, default=24)
     ap.add_argument("--team", default="")
+    ap.add_argument("--lang", choices=["tr", "en"], default="tr", help="model çıktılarının dili")
     a = ap.parse_args()
 
-    run, ranking = asyncio.run(run_pipeline(a.topic, a.hours, a.team, print_event))
+    run, ranking = asyncio.run(run_pipeline(a.topic, a.hours, a.team, print_event, a.lang))
     t = json.loads((run.dir / "timings.json").read_text())
     print(f"\n⏱ Toplam {t['total']}s — " + ", ".join(f"{k} {v}s" for k, v in t["stages"].items()))
 

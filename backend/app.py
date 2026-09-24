@@ -14,6 +14,7 @@ import json
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
@@ -79,6 +80,7 @@ class RunIn(BaseModel):
     topic: str
     hours: int = 24
     team: str = ""
+    lang: Literal["tr", "en"] = "tr"
 
 
 class DecisionIn(BaseModel):
@@ -115,7 +117,7 @@ async def start(body: RunIn):
 
     run_id = uuid.uuid4().hex[:12]
     live = LIVE[run_id] = Live()
-    start_job(live, run_pipeline(topic, body.hours, body.team.strip(), live.emit))
+    start_job(live, run_pipeline(topic, body.hours, body.team.strip(), live.emit, body.lang))
     return {"run_id": run_id}
 
 
