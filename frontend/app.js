@@ -5,7 +5,7 @@ const CRITERIA = [
   ["jury_fit", "Jüri uyumu"], ["feasibility", "Yapılabilirlik"], ["wow", "Etki anı"],
   ["originality", "Özgünlük"], ["demo", "Demo"],
 ];
-const STAGES = ["input", "refine", "council_round1", "council_round2", "judge", "decision", "research"];
+const STAGES = ["input", "refine", "council_round1", "council_round2", "judge", "decision", "research", "build"];
 const STAGE_NAMES = { refine: "Netleştirme", council_round1: "Konsey I", council_round2: "Konsey II", judge: "Jüri" };
 
 function el(tag, cls, text) {
@@ -344,7 +344,10 @@ function renderFeatures(features) {
     });
     const data = await res.json();
     if (!res.ok) { save.disabled = false; form.append(el("p", "error", data.detail)); return; }
-    save.replaceWith(el("p", "saved", `${data.count} özellik kaydedildi: ${data.saved}`));
+    const go = el("button", "primary", "Kodlamaya başla");
+    go.type = "button";
+    go.addEventListener("click", () => startBuild(go, false));
+    save.replaceWith(el("p", "saved", `${data.count} özellik kaydedildi: ${data.saved}`), go);
   };
 }
 
@@ -364,6 +367,184 @@ async function startResearch(btn) {
     rSource.addEventListener(name, (ev) => fn(JSON.parse(ev.data)));
   }
 }
+
+// ---------- V3: kodlama ----------
+const T_STATUS = {
+  coding: "kod yazılıyor", "security review": "güvenlik incelemesi", "fixing security": "güvenlik düzeltmesi",
+  done: "bitti", "tests failing": "testler kırık", "done (önceki çalıştırma)": "bitti (önceki)",
+};
+const tStatus = (s) => T_STATUS[s] || s.replace("fixing", "düzeltiliyor");
+let bSource = null;
+
+function taskRow(id) { return document.querySelector(`#tasks li[data-id="${CSS.escape(id)}"]`); }
+function taskLog(id, node) {
+  const li = taskRow(id);
+  if (li) li.querySelector(".tlog").append(node);
+}
+
+async function answer(ok, note, box) {
+  box.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+  const res = await fetch(`/api/runs/${runId}/build/approve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ok, note }),
+  });
+  if (res.ok) box.remove();
+  else box.append(el("p", "error", (await res.json()).detail));
+}
+
+function renderApproval({ kind, data }) {
+  const box = el("div", "approve");
+  const note = el("input");
+  const row = el("div", "row");
+  const yes = el("button", "primary", kind === "plan" ? "Planı onayla" : "Paketleri kur");
+  const no = el("button", "pick", kind === "plan" ? "Notla yeniden planla" : "Kurma");
+  yes.type = no.type = "button";
+  if (kind === "plan") {
+    box.append(el("h3", null, "Planı onaylıyor musun?"), el("p", null, data.summary));
+    const ul = el("ul");
+    ul.append(el("li", null, `Ek paketler: ${data.packages.length ? data.packages.join(", ") : "yok"}`));
+    box.append(ul);
+    note.placeholder = "Düzeltme notu, ör. T6'yı çıkar, haritayı basit tut";
+    note.setAttribute("aria-label", "Plan düzeltme notu");
+    row.append(yes, note, no);
+    no.addEventListener("click", () => answer(false, note.value, box));  // not boşsa plan reddedilir
+  } else {
+    box.append(el("h3", null, "Bu pip paketleri internetten kurulsun mu?"));
+    const ul = el("ul");
+    data.packages.forEach((p) => ul.append(el("li", "mono", p)));
+    box.append(ul, el("p", "hint", "Kurmazsan kodlayıcıya bu paketleri kullanmaması söylenir."));
+    row.append(yes, no);
+    no.addEventListener("click", () => answer(false, "", box));
+  }
+  yes.addEventListener("click", () => answer(true, "", box));
+  box.append(row);
+  $("#approval").replaceChildren(box);
+  $("#build-status").textContent = "Onayını bekliyor.";
+}
+
+function renderResult(r) {
+  const box = el("div", "result");
+  const passed = r.tasks.filter((t) => t.tests_ok).length;
+  box.append(el("h3", "eyebrow", `${passed}/${r.tasks.length} görev testleri geçti · son test ${r.all_tests_ok ? "✓" : "✗"}`));
+  box.append(el("p", "hint", "Çalıştırmak için terminalde:"), el("code", null, `cd ${r.project} && ${r.run_command}`));
+  if (r.demo_steps.length) {
+    box.append(el("h3", "eyebrow", "Jüriye demo"));
+    const ol = el("ol");
+    r.demo_steps.forEach((s) => ol.append(el("li", null, s)));
+    box.append(ol);
+  }
+  if (!r.all_tests_ok) {
+    const det = el("details");
+    det.append(el("summary", null, "Son test çıktısı"), el("pre", null, r.final_test_output));
+    box.append(det);
+  }
+  $("#build-result").replaceChildren(box);
+}
+
+function endBuild(text, canResume) {
+  stopClock();
+  bSource.close();
+  $("#build-status").textContent = text;
+  $("#approval").replaceChildren();
+  $("#build-stop").hidden = true;
+  $("#build-resume").hidden = !canResume;
+  document.querySelectorAll("#tasks li.busy").forEach((li) => {
+    li.classList.remove("busy");
+    li.querySelector(".tstat").textContent = "yarım kaldı";
+  });
+}
+
+const buildHandlers = {
+  stage({ stage }) {
+    if (stage === "build_plan") $("#build-status").textContent = "Plan yazılıyor…";
+    else if (stage === "build_setup") $("#build-status").textContent = "Proje klasörü kuruluyor…";
+    else $("#build-status").textContent = `${stage.replace("build_", "")} kodlanıyor…`;
+  },
+  plan(d) {
+    $("#tasks").replaceChildren(...d.tasks.map((t) => {
+      const li = el("li");
+      li.dataset.id = t.id;
+      li.append(el("span", "tid mono", t.id), el("span", "ttitle", t.title), el("span", "tstat mono", "bekliyor"),
+        el("p", "tgoal", t.goal), el("div", "tlog"));
+      return li;
+    }));
+  },
+  approval: renderApproval,
+  project(d) { $("#build-status").textContent = `Proje: ${d.path}`; },
+  packages_installed(d) { $("#build-status").textContent = `Kuruldu: ${d.packages.join(", ")}`; },
+  resume(d) {
+    d.done.forEach((id) => {
+      const li = taskRow(id);
+      if (!li) return;
+      li.classList.add("ok");
+      li.querySelector(".tstat").textContent = "bitti (önceki)";
+    });
+  },
+  task(d) {
+    const li = taskRow(d.id);
+    if (!li) return;
+    const final = "tests_ok" in d;
+    li.classList.toggle("busy", !final);
+    li.classList.toggle("ok", final && d.tests_ok);
+    li.classList.toggle("bad", final && !d.tests_ok);
+    li.querySelector(".tstat").textContent = tStatus(d.status);
+  },
+  test(d) {
+    taskLog(d.id, el("p", null, `${d.ok ? "✓" : "✗"} testler${d.attempt ? ` (düzeltme ${d.attempt})` : ""}`));
+    if (!d.ok) {
+      const det = el("details");
+      det.append(el("summary", null, "Test çıktısı"), el("pre", null, d.output));
+      taskLog(d.id, det);
+    }
+  },
+  security(d) {
+    if (!d.reviewed) { taskLog(d.id, el("p", "error", "⚠ Güvenlik incelemesi yapılamadı")); return; }
+    if (!d.findings.length) { taskLog(d.id, el("p", null, "🔒 güvenlik: bulgu yok")); return; }
+    d.findings.forEach((f) => {
+      const p = el("p");
+      p.append(el("span", `sev ${f.severity}`, f.severity), `${f.file}: ${f.issue}`);
+      taskLog(d.id, p);
+    });
+  },
+  timing() {},
+  error(d) { console.warn(d); },
+  build: renderResult,
+  done(d) { endBuild(`Kodlama bitti: ${Math.round(d.total / 60)} dakika.`, false); },
+  fatal(d) { endBuild(`Durdu: ${d.error}`, d.resumable); },
+  stopped(d) { endBuild("Durduruldu.", d.resumable); },
+};
+
+async function startBuild(btn, resume) {
+  btn.disabled = true;
+  const res = await fetch(`/api/runs/${runId}/build`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ resume }),
+  });
+  const data = await res.json();
+  if (!res.ok) { btn.disabled = false; btn.after(el("p", "error", data.detail)); return; }
+  if (resume) { btn.hidden = true; btn.disabled = false; } else btn.remove();
+  $("#features").querySelectorAll("input").forEach((i) => { i.disabled = true; });  // özellikler kodlamayla kilitlenir
+  $("#build-result").replaceChildren();
+  $("#build-stop").hidden = false;
+  setStage("build");
+  $("#build").hidden = false;
+  $("#build").scrollIntoView({ behavior: "smooth" });
+  stopClock();
+  startClock();
+  bSource = new EventSource(`/api/runs/${data.build_id}/events`);
+  for (const [name, fn] of Object.entries(buildHandlers)) {
+    bSource.addEventListener(name, (ev) => fn(JSON.parse(ev.data)));
+  }
+}
+
+$("#build-resume").addEventListener("click", (e) => startBuild(e.target, true));
+$("#build-stop").addEventListener("click", async (e) => {
+  e.target.disabled = true;
+  await fetch(`/api/runs/${runId}/build/stop`, { method: "POST" });
+  e.target.disabled = false;
+});
 
 // ---------- başlat ----------
 $("#intake").addEventListener("submit", async (e) => {

@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 from .pipeline import ROOT, RUNS, SKILLS, Run, RunnerError, call_first
-from .runners import CODER, code
+from .runners import CODER, code, kill_tree
 from .schemas import CodeReport, Plan, SecurityReview, json_schema
 
 PROJECTS = Path.home() / "HackathonBuilderProjects"
@@ -35,12 +35,15 @@ async def sh(cmd: list[str], cwd: Path, timeout: int = 120, env: dict | None = N
     proc = await asyncio.create_subprocess_exec(
         *cmd, cwd=cwd, stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
-        env={**os.environ, **(env or {})})
+        env={**os.environ, **(env or {})}, start_new_session=True)
     try:
         out, _ = await asyncio.wait_for(proc.communicate(), timeout)
     except asyncio.TimeoutError:
-        proc.kill()
+        kill_tree(proc)
         return 124, f"{cmd[0]}: {timeout}s içinde bitmedi"
+    except asyncio.CancelledError:
+        kill_tree(proc)
+        raise
     return proc.returncode, out.decode(errors="replace")
 
 
@@ -192,6 +195,11 @@ async def done_task_ids(project: Path) -> set[str]:
             if ":" in line and line[0] == "T" and "(testler kırık)" not in line}
 
 
+def resumable(run_dir: Path) -> bool:
+    """--resume için onaylı plan ve kurulmuş proje gerekir."""
+    return (run_dir / "plan.json").exists() and (PROJECTS / run_dir.name / ".git").exists()
+
+
 async def run_build(run_dir: Path, emit, approve, resume: bool = False) -> dict:
     """approve(kind, data) → {"ok": bool, "note": str}. kind: "plan" | "packages".
     resume=True: onaylı plan.json ve proje klasörüyle, biten görevleri atlayarak devam eder (kota dolunca)."""
@@ -205,9 +213,10 @@ async def run_build(run_dir: Path, emit, approve, resume: bool = False) -> dict:
     try:
         if resume:
             project = PROJECTS / run.dir.name
-            if not (run.dir / "plan.json").exists() or not (project / ".git").exists():
+            if not resumable(run.dir):
                 raise RunnerError("devam edilecek plan veya proje yok; --resume olmadan başlat")
             plan = Plan.model_validate(run.load("plan"))
+            run.emit("plan", plan.model_dump())
             done = await done_task_ids(project)
             run.emit("resume", {"done": sorted(done)})
             results = [{"id": t.id, "title": t.title, "status": "done (önceki çalıştırma)", "tests_ok": True}
@@ -243,7 +252,7 @@ async def run_build(run_dir: Path, emit, approve, resume: bool = False) -> dict:
         return await finish(run, project, plan, results)
     except RunnerError as e:
         run.save_timings("build_timings")
-        run.emit("fatal", {"error": str(e), "resumable": (run.dir / "plan.json").exists()})
+        run.emit("fatal", {"error": str(e), "resumable": resumable(run.dir)})
         raise
 
 

@@ -200,3 +200,30 @@ a:hover { text-decoration-color: var(--cream); }
   .ticks dd span { width: 10px; }
   .r-grid { grid-template-columns: 1fr; gap: 40px; }
 }
+
+/* ---------- V3: kodlama ---------- */
+.build { margin-top: 72px; padding-top: 40px; border-top: 1px solid var(--line); }
+.approve { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px 24px; margin: 16px 0 24px; max-width: 820px; }
+.approve h3 { font: 400 22px/1.25 var(--display); margin: 0 0 8px; }
+.approve ul { margin: 8px 0 16px; padding-left: 18px; font-size: 13px; }
+.approve li { margin: 4px 0; }
+.approve .row { display: flex; gap: 10px; flex-wrap: wrap; }
+.approve .row input { flex: 1; min-width: 220px; }
+.tasks { list-style: none; padding: 0; margin: 0; max-width: 820px; }
+.tasks > li { display: grid; grid-template-columns: 36px 1fr max-content; gap: 4px 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.tasks .tid { color: var(--muted); padding-top: 3px; }
+.tasks .ttitle { font-weight: 600; }
+.tasks .tgoal { grid-column: 2 / 4; margin: 0; font-size: 13px; color: var(--muted); }
+.tasks .tstat { color: var(--muted); padding-top: 3px; }
+.tasks li.busy .tstat { color: var(--claude); }
+.tasks li.ok .tstat { color: var(--gpt); }
+.tasks li.bad .tstat { color: var(--danger); }
+.tasks .tlog { grid-column: 2 / 4; margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+.tasks .tlog p { margin: 2px 0; }
+.tasks .sev { font: 500 10px var(--mono); text-transform: uppercase; margin-right: 6px; }
+.tasks .sev.high { color: var(--danger); }
+.tasks pre { white-space: pre-wrap; font: 400 11px/1.5 var(--mono); max-height: 240px; overflow: auto; background: var(--panel); padding: 10px; border-radius: 6px; }
+.b-actions { display: flex; gap: 10px; margin: 16px 0; }
+.result { max-width: 820px; margin-top: 16px; }
+.result code { display: block; font: 400 12px/1.6 var(--mono); background: var(--panel); padding: 12px 14px; border-radius: 6px; overflow-wrap: anywhere; margin: 8px 0 16px; }
+.result ol { padding-left: 18px; font-size: 14px; }

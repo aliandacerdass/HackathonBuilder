@@ -5,6 +5,9 @@ GET  /api/runs/{id}/events     → SSE: pipeline olayları canlı akar (kopunca 
 POST /api/runs/{id}/decision   → kullanıcının seçtiği fikir → decision.json
 POST /api/runs/{id}/research   → V2 araştırmayı başlatır, {research_id} döner (olaylar aynı /events ile)
 POST /api/runs/{id}/research-decision → seçilen özellikler → research_decision.json
+POST /api/runs/{id}/build      → V3 kodlamayı başlatır ({resume}), {build_id} döner
+POST /api/runs/{id}/build/approve → bekleyen plan/paket onayına cevap ({ok, note})
+POST /api/runs/{id}/build/stop → kodlamayı durdurur (sonra resume ile devam edilebilir)
 """
 import asyncio
 import json
@@ -18,6 +21,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from .builder import resumable, run_build
 from .pipeline import RUNS, RunnerError, run_pipeline, save_decision
 from .research import run_research
 
@@ -47,6 +51,8 @@ class Live:
         self.finished = False
         self.ranking: list[dict] = []
         self.run_dir: Path | None = None
+        self.task: asyncio.Task | None = None
+        self.pending: asyncio.Future | None = None  # builder kullanıcı onayı bekliyor
 
     def emit(self, event: str, data: dict):
         self.events.append((event, data))
@@ -55,6 +61,15 @@ class Live:
         elif event == "done":
             self.run_dir = RUNS / data["run_dir"]
         self.changed.set()
+
+    async def approve(self, kind: str, data: dict) -> dict:
+        """Builder'ın onay çağrısı: arayüze sorar, POST .../build/approve cevabını bekler."""
+        self.pending = asyncio.get_running_loop().create_future()
+        self.emit("approval", {"kind": kind, "data": data})
+        try:
+            return await self.pending
+        finally:
+            self.pending = None
 
 
 LIVE: dict[str, Live] = {}
@@ -73,6 +88,15 @@ class DecisionIn(BaseModel):
 
 class ResearchDecisionIn(BaseModel):
     features: list[str]
+    note: str = ""
+
+
+class BuildIn(BaseModel):
+    resume: bool = False
+
+
+class ApproveIn(BaseModel):
+    ok: bool
     note: str = ""
 
 
@@ -102,13 +126,15 @@ def start_job(live: Live, coro):
             await coro
         except RunnerError:
             pass  # "fatal" olayı zaten yayınlandı
+        except asyncio.CancelledError:  # kullanıcı durdurdu
+            live.emit("stopped", {"resumable": bool(live.run_dir and resumable(live.run_dir))})
         except Exception as e:  # beklenmeyen hata da arayüze ulaşsın
             live.emit("fatal", {"error": f"beklenmeyen hata: {e}"})
         finally:
             live.finished = True
             live.changed.set()
 
-    asyncio.create_task(job())
+    return asyncio.create_task(job())
 
 
 @app.get("/api/runs/{run_id}/events")
@@ -174,6 +200,38 @@ async def research_decide(run_id: str, body: ResearchDecisionIn):
             "decided_at": datetime.now().isoformat(timespec="seconds")}
     (live.run_dir / "research_decision.json").write_text(json.dumps(data, indent=2, ensure_ascii=False))
     return {"saved": f"runs/{live.run_dir.name}/research_decision.json", "count": len(chosen)}
+
+
+@app.post("/api/runs/{run_id}/build")
+async def build(run_id: str, body: BuildIn):
+    live = LIVE.get(run_id)
+    if not live or not live.run_dir or not (live.run_dir / "decision.json").exists():
+        raise HTTPException(400, "Önce bir fikir seç")
+    bid = f"{run_id}-b"
+    if bid in LIVE and not LIVE[bid].finished:
+        return {"build_id": bid}  # zaten çalışıyor: ikinci kez başlatma (kota)
+    b = LIVE[bid] = Live()
+    b.run_dir = live.run_dir
+    b.task = start_job(b, run_build(live.run_dir, b.emit, b.approve, resume=body.resume))
+    return {"build_id": bid}
+
+
+@app.post("/api/runs/{run_id}/build/approve")
+async def build_approve(run_id: str, body: ApproveIn):
+    b = LIVE.get(f"{run_id}-b")
+    if not b or not b.pending or b.pending.done():
+        raise HTTPException(400, "Onay bekleyen bir şey yok")
+    b.pending.set_result({"ok": body.ok, "note": body.note.strip()})
+    return {"ok": True}
+
+
+@app.post("/api/runs/{run_id}/build/stop")
+async def build_stop(run_id: str):
+    b = LIVE.get(f"{run_id}-b")
+    if not b or b.finished:
+        raise HTTPException(400, "Çalışan bir kodlama yok")
+    b.task.cancel()
+    return {"stopping": True}
 
 
 if __name__ == "__main__":

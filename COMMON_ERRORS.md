@@ -21,6 +21,7 @@
 | `--allowedTools` prompt'u yuttu | `Input must be provided... when using --print` | Araçları virgülle tek argüman ver (`"Read,Edit"`) veya prompt'tan önce `--` koy |
 | Codex kotası doldu | `usage limit. Upgrade to Plus... try again at Oct 2nd` | Kodlayıcı alternatifi: Claude Code OS sandbox içinde |
 | İzin kuralı `Write(./**)` işe yaramaz | "not matched by file permission checks" | `Edit(./**)` kullan |
+| `codex sandbox claude` durdurulunca claude yetim kalır | Üst süreç öldü, claude PPID=1 ile çalışıp kota yemeye devam etti | `start_new_session=True` + `kill_tree()` (os.killpg); timeout ve iptal ikisinde de |
 | agy uzun işte timeout | Yarım çıktı | Tek çağrıya tek iş, `--print-timeout` ver |
 
 ## Her Değişiklik Sonrası Kontrol Listesi

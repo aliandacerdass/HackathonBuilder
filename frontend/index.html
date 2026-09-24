@@ -20,6 +20,7 @@
       <li data-stage="judge">Jüri</li>
       <li data-stage="decision">Karar</li>
       <li data-stage="research">Araştırma</li>
+      <li data-stage="build">Kodlama</li>
     </ol>
     <span class="clock mono" id="clock" hidden>00:00</span>
   </header>
@@ -81,6 +82,18 @@
             <ul class="sources" id="sources"></ul>
           </div>
         </div>
+      </section>
+
+      <section class="build" id="build" hidden aria-live="polite">
+        <h2>Kodlama</h2>
+        <p class="hint" id="build-status">Plan yazılıyor…</p>
+        <div id="approval"></div>
+        <ol class="tasks" id="tasks"></ol>
+        <div class="b-actions">
+          <button type="button" class="pick" id="build-stop" hidden>Durdur</button>
+          <button type="button" class="primary" id="build-resume" hidden>Kaldığı yerden devam et</button>
+        </div>
+        <div id="build-result"></div>
       </section>
 
       <p class="error" id="fatal" role="alert" hidden></p>

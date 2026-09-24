@@ -7,6 +7,7 @@ API key yok: her CLI kullanıcının kendi abonelik login'ini kullanır.
 import asyncio
 import json
 import os
+import signal
 import sys
 import tempfile
 import time
@@ -38,6 +39,15 @@ class RunnerTimeout(RunnerError):
     """Süre aşımı: tekrar denenmez (yoksa bekleme süresi ikiye katlanır)."""
 
 
+def kill_tree(proc: asyncio.subprocess.Process):
+    """Süreci alt süreçleriyle öldürür: `codex sandbox claude ...` içinde sadece üstü öldürülürse
+    claude yetim kalıp çalışmaya (ve kota yemeye) devam ediyor (test edildi)."""
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
 async def _run(cmd: list[str], cwd: Path, timeout: int = TIMEOUT) -> str:
     """Komutu çalıştırır, stdout döner. Hata/timeout → RunnerError."""
     try:
@@ -46,14 +56,18 @@ async def _run(cmd: list[str], cwd: Path, timeout: int = TIMEOUT) -> str:
             stdin=asyncio.subprocess.DEVNULL,  # yoksa codex/claude stdin bekler
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,  # kendi süreç grubu: kill_tree hepsini öldürebilsin
         )
     except FileNotFoundError:
         raise RunnerError(f"{cmd[0]} kurulu değil")
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout)
     except asyncio.TimeoutError:
-        proc.kill()
+        kill_tree(proc)
         raise RunnerTimeout(f"{cmd[0]} {timeout}s içinde cevap vermedi")
+    except asyncio.CancelledError:
+        kill_tree(proc)  # kullanıcı durdurdu: CLI arkada çalışıp kota yemeye devam etmesin
+        raise
     if proc.returncode != 0:
         # Bazı CLI'lar hatayı stdout'a yazar (ör. claude kota mesajı): stderr boşsa onu göster
         detail = err.decode(errors="replace").strip() or out.decode(errors="replace").strip()
