@@ -19,6 +19,9 @@ CODE_TIMEOUT = 900  # kodlama görevi (dosya yazma + test) daha uzun sürer
 # /var/folders (sistem temp) olmaz: agy orada "503 Eligibility check failed" veriyor.
 WORK_ROOT = Path.home() / ".cache" / "hackathonbuilder"
 
+# Kodu kim yazar: claude (varsayılan, OS sandbox içinde) | codex. Codex kotası dönünce: HB_CODER=codex
+CODER = os.getenv("HB_CODER", "claude")
+
 # Boşsa CLI'ın varsayılan modeli kullanılır. Örn: HB_CLAUDE_MODEL=sonnet
 MODEL_OVERRIDE = {
     "claude": os.getenv("HB_CLAUDE_MODEL"),
@@ -52,7 +55,9 @@ async def _run(cmd: list[str], cwd: Path, timeout: int = TIMEOUT) -> str:
         proc.kill()
         raise RunnerTimeout(f"{cmd[0]} {timeout}s içinde cevap vermedi")
     if proc.returncode != 0:
-        raise RunnerError(f"{cmd[0]} çıkış kodu {proc.returncode}: {err.decode()[-300:]}")
+        # Bazı CLI'lar hatayı stdout'a yazar (ör. claude kota mesajı): stderr boşsa onu göster
+        detail = err.decode(errors="replace").strip() or out.decode(errors="replace").strip()
+        raise RunnerError(f"{cmd[0]} çıkış kodu {proc.returncode}: {detail[-300:]}")
     return out.decode()
 
 
@@ -64,7 +69,8 @@ def _with_model(cmd: list[str], model: str) -> list[str]:
 async def _claude(prompt: str, schema: dict, wd: Path, web: bool) -> dict:
     # web=True: SADECE arama/okuma araçları (dosya yazma, komut çalıştırma yok)
     tools = ["--tools", "WebSearch,WebFetch", "--allowedTools", "WebSearch", "WebFetch"] if web else ["--tools", ""]
-    cmd = _with_model(["claude", "-p", "--output-format", "json", *tools,
+    # --restricted: kullanıcının kişisel ayarları/hook'ları (ör. caveman modu) context'e sızmaz
+    cmd = _with_model(["claude", "-p", "--restricted", "--output-format", "json", *tools,
                        "--json-schema", json.dumps(schema)], "claude")
     data = json.loads(await _run(cmd + [prompt], wd))
     if data.get("is_error"):
@@ -114,18 +120,36 @@ async def ask(model: str, prompt: str, schema: dict, retries: int = 1, web: bool
     raise RunnerError(f"{model}: {last}")
 
 
-async def code(project_dir: Path, prompt: str, schema: dict) -> dict:
-    """Codex'e proje klasöründe kod yazdırır ve çalıştırır.
+# Claude'u kodlayıcı yapan iki katman (ikisi de test edildi, klasör dışı yazma engelli):
+#  1) `codex sandbox` = yerel işletim sistemi sandbox'ı (Codex kotası HARCAMAZ): sadece proje klasörüne
+#     yazabilir. İnternet açık çünkü Claude'un Anthropic'e bağlanması gerekiyor. ~/.claude'a yazamaz.
+#  2) `--restricted` + `dontAsk`: kişisel ayar/hook yok, dosya araçları çalışma klasöründe, Bash yok.
+#     Testleri kodlayıcı değil, builder çalıştırır (internetsiz sandbox'ta).
+CLAUDE_SANDBOX = ["codex", "sandbox", "-c", 'sandbox_mode="workspace-write"',
+                  "-c", "sandbox_workspace_write.network_access=true"]
 
-    Güvenlik: `-s workspace-write` = işletim sistemi sandbox'ı. Sadece project_dir'e yazabilir,
-    internet yok. Claude Code bu iş için KULLANILMAZ (Write aracı klasör dışına yazabiliyor).
-    Codex, project_dir/AGENTS.md'deki kuralları kendiliğinden okur.
+
+async def code(project_dir: Path, prompt: str, schema: dict) -> dict:
+    """Proje klasöründe kod yazdırır (CODER: claude | codex). Kodlayıcı SADECE project_dir'e yazabilir.
+
+    Claude project_dir/CLAUDE.md'yi, Codex project_dir/AGENTS.md'yi kendiliğinden okur.
     Tekrar denenmez: yarım kalan bir kodlama görevini körlemesine tekrarlamak dosyaları bozabilir.
     """
     WORK_ROOT.mkdir(parents=True, exist_ok=True)
+    if CODER == "claude":
+        cmd = _with_model([*CLAUDE_SANDBOX, "claude", "-p", "--restricted", "--output-format", "json",
+                           "--tools", "Read,Edit,Write,Glob,Grep", "--permission-mode", "dontAsk",
+                           "--allowedTools", "Read(./**),Edit(./**),Glob,Grep",
+                           "--json-schema", json.dumps(schema)], "claude")
+        data = json.loads(await _run(cmd + ["--", prompt], project_dir, CODE_TIMEOUT))
+        if data.get("is_error") or "structured_output" not in data:
+            raise RunnerError(f"claude kodlayıcı: {str(data.get('result'))[:300]}")
+        return data["structured_output"]
+
     with tempfile.TemporaryDirectory(dir=WORK_ROOT) as wd:  # şema/çıktı dosyaları projeyi kirletmesin
         wd = Path(wd)
         (wd / "schema.json").write_text(json.dumps(schema))
+        # -s workspace-write: işletim sistemi sandbox'ı, sadece project_dir'e yazar, internet yok
         cmd = _with_model(["codex", "exec", "--skip-git-repo-check", "-s", "workspace-write",
                            "-C", str(project_dir), "--output-schema", str(wd / "schema.json"),
                            "-o", str(wd / "out.json")], "gpt")
@@ -146,8 +170,8 @@ async def _code_smoke() -> int:
     schema = {"type": "object", "additionalProperties": False, "required": ["files", "tests_passed", "summary"],
               "properties": {"files": {"type": "array", "items": {"type": "string"}},
                              "tests_passed": {"type": "boolean"}, "summary": {"type": "string"}}}
-    prompt = ("Create calc.py with add(a, b) and test_calc.py with 2 unittest tests, then run "
-              "`python3 -m unittest -v`. Also try to create ../outside.txt and report in summary if it worked.")
+    prompt = ("Create calc.py with add(a, b) and test_calc.py with 2 unittest tests. If you can run commands, "
+              "run `python3 -m unittest -v`. Also try to create ../outside.txt and report in summary if it worked.")
     t = time.time()
     r = await code(project, prompt, schema)
     # Ajanın kendi raporuna güvenme: testi biz çalıştırırız
@@ -159,7 +183,7 @@ async def _code_smoke() -> int:
     ]
     for name, ok in checks:
         print(f"{'✓' if ok else '✗'} {name}")
-    print(f"ajan raporu: tests_passed={r['tests_passed']} · {r['summary'][:150]}")
+    print(f"kodlayıcı: {CODER} · ajan raporu: tests_passed={r['tests_passed']} · {r['summary'][:150]}")
     print(f"{time.time() - t:.1f}s · {sum(ok for _, ok in checks)}/{len(checks)}")
     subprocess.run(["rm", "-rf", str(base)])
     return 0 if all(ok for _, ok in checks) else 1

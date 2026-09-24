@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 from .pipeline import ROOT, RUNS, SKILLS, Run, RunnerError, call_first
-from .runners import code
+from .runners import CODER, code
 from .schemas import CodeReport, Plan, SecurityReview, json_schema
 
 PROJECTS = Path.home() / "HackathonBuilderProjects"
@@ -79,12 +79,13 @@ async def setup_project(run: Run, plan: Plan, ctx: dict) -> Path:
     (project / "tests").mkdir(parents=True, exist_ok=True)
     (project / "app").mkdir(exist_ok=True)
 
-    # Codex bu dosyayı kendiliğinden okur: kodlayıcının skill'i + projenin bağlamı
+    # Kodlayıcı bu dosyayı kendiliğinden okur (Codex: AGENTS.md, Claude: CLAUDE.md): skill + proje bağlamı
     agents = (SKILLS / "coder.md").read_text() + "\n\n## This project\n" + json.dumps(
         {"idea": ctx["idea"], "selected_features": ctx.get("selected_features", []),
          "hours": ctx["hours"], "plan": plan.summary, "file_tree": plan.file_tree},
         indent=2, ensure_ascii=False)
     (project / "AGENTS.md").write_text(agents)
+    (project / "CLAUDE.md").write_text(agents)
     (project / ".gitignore").write_text(".venv/\n__pycache__/\n*.pyc\n.env\n.env.*\n*.log\n.DS_Store\n")
     (project / "tests" / "__init__.py").touch()
 
@@ -124,7 +125,7 @@ async def build_task(run: Run, project: Path, plan: Plan, i: int) -> dict:
     run.emit("task", {"id": t.id, "title": t.title, "status": "coding"})
     await timed_code(run, stage, project,
                      f"Implement this task: {task_text}\nAlready done: {done_before}\n"
-                     "Follow AGENTS.md. Write tests, run them, then report.", schema)
+                     "Follow AGENTS.md. Write tests for it, then report.", schema)
 
     # Test → düzeltme döngüsü (sonucu BİZİM test çalıştırmamız belirler)
     attempts = 0
@@ -143,7 +144,7 @@ async def build_task(run: Run, project: Path, plan: Plan, i: int) -> dict:
     run.emit("task", {"id": t.id, "title": t.title, "status": "security review"})
     await git(project, "add", "-A")
     diff = (await git(project, "diff", "--cached"))[:20000]
-    findings = []
+    findings, reviewed = [], True
     if diff.strip():
         try:
             _, review = await call_first(run, stage, ["claude", "gpt"], "security-reviewer",
@@ -151,9 +152,10 @@ async def build_task(run: Run, project: Path, plan: Plan, i: int) -> dict:
                                          SecurityReview)
             findings = [f.model_dump() for f in review.findings]
         except RunnerError as e:
+            reviewed = False  # "0 bulgu" DEĞİL: inceleme hiç yapılamadı
             run.emit("error", {"stage": stage, "model": "security", "error": str(e)})
     high = [f for f in findings if f["severity"] == "high"]
-    run.emit("security", {"id": t.id, "findings": findings})
+    run.emit("security", {"id": t.id, "findings": findings, "reviewed": reviewed})
     if high:
         run.emit("task", {"id": t.id, "title": t.title, "status": "fixing security"})
         await timed_code(run, stage, project,
@@ -165,7 +167,7 @@ async def build_task(run: Run, project: Path, plan: Plan, i: int) -> dict:
     status = "done" if ok else "tests failing"
     await git(project, "commit", "-qm", f"{t.id}: {t.title}" + ("" if ok else " (testler kırık)"), "--allow-empty")
     result = {"id": t.id, "title": t.title, "status": status, "tests_ok": ok, "fix_attempts": attempts,
-              "findings": findings, "high_fixed": bool(high)}
+              "security_reviewed": reviewed, "findings": findings, "high_fixed": bool(high)}
     run.emit("task", result)
     return result
 
@@ -175,16 +177,24 @@ async def timed_code(run: Run, stage: str, project: Path, prompt: str, schema: d
     try:
         r = await code(project, prompt, schema)
     except RunnerError:
-        run.timing(stage, "gpt", t0, ok=False)
+        run.timing(stage, CODER, t0, ok=False)
         raise
-    run.timing(stage, "gpt", t0, ok=True)
+    run.timing(stage, CODER, t0, ok=True)
     return r
 
 
 # ---------- boru hattı ----------
 
-async def run_build(run_dir: Path, emit, approve) -> dict:
-    """approve(kind, data) → {"ok": bool, "note": str}. kind: "plan" | "packages"."""
+async def done_task_ids(project: Path) -> set[str]:
+    """Commit mesajlarından biten görevler: "T3: ..." (testleri kırık olanlar hariç)."""
+    log = await git(project, "log", "--format=%s")
+    return {line.split(":")[0] for line in log.splitlines()
+            if ":" in line and line[0] == "T" and "(testler kırık)" not in line}
+
+
+async def run_build(run_dir: Path, emit, approve, resume: bool = False) -> dict:
+    """approve(kind, data) → {"ok": bool, "note": str}. kind: "plan" | "packages".
+    resume=True: onaylı plan.json ve proje klasörüyle, biten görevleri atlayarak devam eder (kota dolunca)."""
     run = Run(run_dir, emit)
     decision = run.load("decision")
     ctx = {"brief": run.load("refined"), **run.load("input"), "idea": decision["chosen"]["idea"]}
@@ -193,6 +203,20 @@ async def run_build(run_dir: Path, emit, approve) -> dict:
         ctx["selected_features"] = run.load("research_decision")["features"]
 
     try:
+        if resume:
+            project = PROJECTS / run.dir.name
+            if not (run.dir / "plan.json").exists() or not (project / ".git").exists():
+                raise RunnerError("devam edilecek plan veya proje yok; --resume olmadan başlat")
+            plan = Plan.model_validate(run.load("plan"))
+            done = await done_task_ids(project)
+            run.emit("resume", {"done": sorted(done)})
+            results = [{"id": t.id, "title": t.title, "status": "done (önceki çalıştırma)", "tests_ok": True}
+                       for t in plan.tasks if t.id in done]
+            for i, t in enumerate(plan.tasks):
+                if t.id not in done:
+                    results.append(await build_task(run, project, plan, i))
+            return await finish(run, project, plan, results)
+
         run.begin("build_plan")
         plan = await make_plan(run, ctx)
         answer = await approve("plan", plan.model_dump())
@@ -209,17 +233,21 @@ async def run_build(run_dir: Path, emit, approve) -> dict:
             if answer["ok"]:
                 await install_packages(run, project, plan.packages)
             else:
-                (project / "AGENTS.md").write_text((project / "AGENTS.md").read_text() +
-                                                   f"\n\nDo NOT use these packages (not installed): {plan.packages}\n")
+                for name in ("AGENTS.md", "CLAUDE.md"):
+                    (project / name).write_text((project / name).read_text() +
+                                                f"\n\nDo NOT use these packages (not installed): {plan.packages}\n")
 
         results = []
         for i in range(len(plan.tasks)):
             results.append(await build_task(run, project, plan, i))
+        return await finish(run, project, plan, results)
     except RunnerError as e:
         run.save_timings("build_timings")
-        run.emit("fatal", {"error": str(e)})
+        run.emit("fatal", {"error": str(e), "resumable": (run.dir / "plan.json").exists()})
         raise
 
+
+async def finish(run: Run, project: Path, plan: Plan, results: list[dict]) -> dict:
     ok, out = await run_tests(project)
     result = {"project": str(project), "tasks": results, "all_tests_ok": ok, "final_test_output": out[-1500:],
               "run_command": ".venv/bin/python -m uvicorn app.main:app --port 8001",
@@ -257,26 +285,34 @@ def print_event(event: str, d: dict):
     elif event == "test":
         print(f"    {'✓' if d['ok'] else '✗'} testler (deneme {d['attempt']})")
     elif event == "security":
-        sev = [f["severity"] for f in d["findings"]]
-        print(f"    🔒 {len(sev)} bulgu {sev if sev else ''}")
+        if not d["reviewed"]:
+            print("    🔒 ⚠ güvenlik incelemesi YAPILAMADI")
+        else:
+            sev = [f["severity"] for f in d["findings"]]
+            print(f"    🔒 {len(sev)} bulgu {sev if sev else ''}")
+    elif event == "resume":
+        print(f"  ↻ devam: biten görevler {d['done']}")
     elif event == "timing":
         print(f"    ⏱ {d['model']} {d['seconds']:.0f}s {'' if d['ok'] else '✗'}")
     elif event == "error":
         print(f"    ✗ {d['stage']} / {d['model']}: {d['error'][:200]}")
     elif event == "fatal":
         print(f"\n✗ DURDU: {d['error']}")
+        if d.get("resumable"):
+            print("  Kaldığı yerden devam: python -m backend.builder <tur> --resume")
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("run_dir", help="decision.json içeren tur klasörü")
+    ap.add_argument("--resume", action="store_true", help="kota dolup durduysa kaldığı yerden devam et")
     a = ap.parse_args()
     run_dir = Path(a.run_dir)
     if not run_dir.exists():
         run_dir = RUNS / a.run_dir
     if not (run_dir / "decision.json").exists():
         raise SystemExit(f"{run_dir}/decision.json yok. Önce bir fikir seç.")
-    r = asyncio.run(run_build(run_dir, print_event, terminal_approve))
+    r = asyncio.run(run_build(run_dir, print_event, terminal_approve, resume=a.resume))
     print(f"\n🏁 {sum(t['tests_ok'] for t in r['tasks'])}/{len(r['tasks'])} görev testleri geçti · "
           f"son test: {'✓' if r['all_tests_ok'] else '✗'}")
     print(f"📁 {r['project']}\n▶ cd {r['project']} && {r['run_command']}")
