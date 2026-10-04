@@ -1,10 +1,10 @@
 # HackathonBuilder
 
-Hackathon konusunu gir. Claude, GPT ve Gemini'den oluşan bir konsey fikir üretir ve birbirinin fikirlerini eleştirir. Bir jüri modeli fikirleri puanlar, son kararı sen verirsin. Seçtiğin fikir için makale, repo, web ve video kaynakları toplanır. Jüriye gösterebileceğin, kaynağı doğrulanmış sayılar ve eklenebilecek özellikler çıkarılır.
+Hackathon konusunu gir. Claude, GPT ve Gemini'den oluşan bir konsey fikir üretir ve birbirinin fikirlerini eleştirir. Bir jüri modeli fikirleri puanlar, son kararı sen verirsin. Seçtiğin fikir için makale, repo, web ve video kaynakları toplanır. Jüriye gösterebileceğin, kaynağı doğrulanmış sayılar ve eklenebilecek özellikler çıkarılır. Sonra ajanlar fikri koda döker: plan, görev görev kod, test ve güvenlik incelemesi.
 
 **API key gerekmez.** Uygulama modelleri kendi aboneliklerinle, resmi CLI'lar üzerinden çağırır: Claude Code, Codex CLI ve Antigravity (`agy`). Her şey senin bilgisayarında çalışır.
 
-> Durum: **V1** (fikir konseyi) ve **V2** (araştırma) çalışıyor. Kodlama döngüsü ve UI/UX ajanı yol haritasında.
+> Durum: **V1** (fikir konseyi), **V2** (araştırma) ve **V3** (kodlama döngüsü) çalışıyor. UI/UX ajanı ve jüri sunumu yol haritasında.
 
 ## Nasıl çalışır
 
@@ -35,6 +35,22 @@ Seçtiğin fikir ──▶ Arama sorguları ──▶ Makaleler (OpenAlex)      
 - **Kaynak filtresi:** Bir sayı veya özellik, toplanan listede olmayan bir linke dayanıyorsa kodla atılır.
 - **Gemini sadece analiz yapar**, web'e çıkmaz. Web araması Claude ve GPT'de.
 - Bir araştırma turu genelde **1.5-2.5 dakika** sürer. Web araması Claude kotasını normal çağrılardan hızlı harcar.
+
+### Kodlama (V3)
+
+```
+Fikir + seçili özellikler ──▶ Plan ──▶ 👤 Plan onayı ──▶ 👤 Paket onayı ──▶ Görev döngüsü (en fazla 8 görev)
+                              (LLM)                                         kod ──▶ test ──▶ güvenlik ──▶ commit
+                                                                                  (≤3 düzeltme)  (ciddi bulgu → düzelt)
+```
+
+- **Sabit stack:** FastAPI + HTML/JS. Testler `unittest`.
+- **Ürün HackathonBuilder'ın dışına yazılır:** `~/HackathonBuilderProjects/<tur-klasörü>/`. Her ürün kendi git reposudur, her görev ayrı commit olur. Sızıntı kontrolü hook'u ürüne de kurulur.
+- **Kodlayıcı sandbox'ta çalışır:** Kod `codex sandbox` (macOS işletim sistemi sandbox'ı) içinde yazılır. Proje klasörü dışına yazamaz, internete çıkamaz. Varsayılan kodlayıcı Claude (`codex sandbox` Codex kotası harcamaz), `HB_CODER=codex` ile Codex.
+- **Testleri ajan değil uygulama çalıştırır.** Ajanın "testler geçti" demesine güvenilmez.
+- **Güvenlik incelemesi:** Her görevin diff'ini Claude inceler. High bulgular düzeltilir, low/medium bulgular raporda kalır.
+- **Paketler:** Sandbox'ta internet yok. Onayladığın paketleri uygulama, projenin `.venv`'ine kurar.
+- **Durdur / devam et:** Kota dolarsa veya durdurursan, biten görevler commit'lerden bulunur ve kalanlardan devam edilir.
 
 ## Gereksinimler
 
@@ -84,13 +100,26 @@ python -m backend.app
 
 **http://127.0.0.1:8000** adresini aç. Konuyu, süreyi ve ekibi gir, sonra **Konseyi topla**'ya bas. Tur bitince istediğin fikrin kartında **Bu fikri seç**'e bas, istersen not ekle.
 
+Konuyu girerken **Sonuç dili**ni seç (Türkçe/İngilizce). Fikirler, araştırma ve plan bu dilde yazılır, tur içinde değişmez.
+
 Kararı kaydettikten sonra **Bu fikir için araştırma yap**'a bas. Araştırma bitince eklemek istediğin özellikleri işaretleyip **Seçili özellikleri kaydet**'e bas.
+
+Sonra **Kodlamaya başla**'ya bas. Planı ve kurulacak paketleri onayla (reddedersen not yazarak planı bir kez yeniden yazdırabilirsin). Görevler canlı akar, **Durdur** ile kesebilir, **Kaldığı yerden devam et** ile sürdürebilirsin. Bitince ürünün nasıl çalıştırılacağı ve test/güvenlik raporu gösterilir.
 
 **Terminalde:**
 
 ```bash
 python -m backend.pipeline "Sağlıkta yapay zeka" --hours 24 --team "2 kişi, Python ve Flutter"
 python -m backend.research runs/<tur-klasörü>      # decision.json olan bir tur için araştırma
+python -m backend.builder runs/<tur-klasörü>       # kodlama (onaylar terminalden sorulur)
+python -m backend.builder runs/<tur-klasörü> --resume   # durduysa kaldığı yerden devam
+```
+
+Üretilen ürünü çalıştırmak için:
+
+```bash
+cd ~/HackathonBuilderProjects/<tur-klasörü>
+.venv/bin/python -m uvicorn app.main:app --port 8001
 ```
 
 ### Çıktılar
@@ -108,8 +137,11 @@ Her tur `runs/<tarih>-<konu>/` klasörüne kaydedilir:
 | `research.json` | Sorgular, makaleler, repolar, web/video kaynakları, sayılar, özellikler |
 | `research_timings.json` | Araştırma aşama ve model süreleri |
 | `research_decision.json` | Seçtiğin özellikler ve notun |
+| `plan.json` | Onaylanan kodlama planı: görevler, paketler, dosya ağacı |
+| `build.json` | Görev sonuçları, son test çıktısı, çalıştırma komutu, demo adımları |
+| `build_timings.json` | Kodlama aşama süreleri |
 
-`runs/` git'e gönderilmez, fikirlerin bilgisayarında kalır.
+`runs/` git'e gönderilmez, fikirlerin bilgisayarında kalır. Ürünün kodu `~/HackathonBuilderProjects/<tur-klasörü>/` içindedir.
 
 ### Model seçimi (isteğe bağlı)
 
@@ -118,6 +150,7 @@ Boş bırakılırsa her CLI'ın varsayılan modeli kullanılır.
 ```bash
 HB_CLAUDE_MODEL=sonnet python -m backend.app      # Claude kotan zorlanıyorsa
 HB_GPT_MODEL=...  HB_GEMINI_MODEL=...
+HB_CODER=codex python -m backend.app             # kodu Claude yerine Codex yazsın
 ```
 
 Gemini için kullanılabilir modelleri görmek için: `agy models`
@@ -128,6 +161,7 @@ Gemini için kullanılabilir modelleri görmek için: `agy models`
 - **Temiz context:** Modeller proje dışındaki boş bir klasörde çalışır, proje dosyalarını görmez.
 - **Güvenli gösterim:** Model çıktıları sayfaya düz metin olarak yazılır (`textContent`). Çıktının içindeki HTML/script çalışmaz. Model linklerinden sadece `http`/`https` olanlar tıklanabilir.
 - **Kısıtlı web erişimi:** Araştırmada Claude'a sadece arama ve okuma araçları verilir. GPT salt okunur sandbox'ta çalışır. Skill'ler, kaynak metnindeki talimatların yok sayılmasını söyler (prompt injection).
+- **Kodlama sandbox'ı:** Kodlayıcı ve üretilen testler işletim sistemi sandbox'ında çalışır: proje klasörü dışına yazma ve internet kapalı. Sandbox dosya *okumayı* engellemez; bu yüzden üretilen projeye de push öncesi sızıntı taraması kurulur. Paket kurulumu ve her plan senin onayınla yapılır.
 - **Push öncesi tarama:** Her push'tan önce `scripts/pre-push-check.sh` çalışır: gitleaks, API key, kişisel yol ve e-posta taraması. Bulgu varsa push iptal edilir.
 
 ## Proje dosyaları
@@ -138,13 +172,13 @@ Gemini için kullanılabilir modelleri görmek için: `agy models`
 | `PROJECT_MEMORY.md` | Kararlar, mimari, **kaldığımız yer** |
 | `tasks.md` | Fazlara göre yapılacaklar |
 | `COMMON_ERRORS.md` | Bilinen hatalar ve kontrol listesi |
-| `skills/*.md` | Ajan rolleri (netleştirici, konsey üyesi, jüri, sorgu yazıcı, web araştırmacı, repo inceleyici, sayı ve özellik çıkarıcı) |
+| `skills/*.md` | Ajan rolleri (netleştirici, konsey üyesi, jüri, sorgu yazıcı, web araştırmacı, repo inceleyici, sayı ve özellik çıkarıcı, planlayıcı, kodlayıcı, güvenlik inceleyici) |
 
 ## Yol haritası
 
 - [x] **V1:** Fikir konseyi (netleştirme → 2 turlu konsey → jüri → karar)
 - [x] **V2:** Araştırma ajanları (makale, sayısal veri, özellik, GitHub, web/YouTube)
-- [ ] **V3:** Kodlama döngüsü (kod → güvenlik → test → hata raporu, kullanıcı onay noktalarıyla)
+- [x] **V3:** Kodlama döngüsü (kod → güvenlik → test → hata raporu, kullanıcı onay noktalarıyla)
 - [ ] **V4:** UI/UX iyileştirme ve jüri sunumu
 
 ## Lisans
