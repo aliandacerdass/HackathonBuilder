@@ -46,12 +46,12 @@ Fikir + seçili özellikler ──▶ Plan ──▶ 👤 Plan onayı ──▶ 
 
 - **Sabit stack:** FastAPI + HTML/JS. Testler `unittest`.
 - **Ürün HackathonBuilder'ın dışına yazılır:** `~/HackathonBuilderProjects/<tur-klasörü>/`. Her ürün kendi git reposudur, her görev ayrı commit olur. Sızıntı kontrolü hook'u ürüne de kurulur.
-- **Kodlayıcı sandbox'ta çalışır:** Kod `codex sandbox` (macOS işletim sistemi sandbox'ı) içinde yazılır. Proje klasörü dışına yazamaz, internete çıkamaz. Varsayılan kodlayıcı Claude (`codex sandbox` Codex kotası harcamaz), `HB_CODER=codex` ile Codex.
+- **Kodlayıcı sandbox'ta çalışır:** Kod `codex sandbox` (macOS işletim sistemi sandbox'ı) içinde yazılır ve proje klasörü dışına yazamaz. Varsayılan kodlayıcı Claude'dur (`codex sandbox` Codex kotası harcamaz). Claude'un ağ bağlantısı açıktır, çünkü kendi sunucusuna ulaşması gerekir; ama ona sadece dosya okuma/düzenleme araçları verilir, komut çalıştıramaz ve web'e çıkamaz. `HB_CODER=codex` ile kodu Codex yazar; Codex'in sandbox'ında internet tamamen kapalıdır.
 - **Testleri ajan değil uygulama çalıştırır.** Ajanın "testler geçti" demesine güvenilmez.
 - **Güvenlik incelemesi:** Her görevin diff'ini Claude inceler. Hangi bulguların düzeltileceğini plan onayında seçersin: sadece high, high + medium (varsayılan) veya hepsi. Kalanlar raporda görünür.
 - **UI/UX cilası (V4):** Görevler bitince bir ajan kodu okuyup jüri demosunu tarayıcı adımlarına çevirir (tıkla, doldur, seç, dosya yükle, bekle). Bu adımlar kod değil, JSON listesidir; uygulamayı bizim kod yapar ve proje dışından dosya yüklenemez. Uygulama sandbox'ta açılır, demo adımlarıyla gezilir ve ilk ekranla birlikte demo ekranları masaüstünde ve mobilde çekilir. UI ajanı görüntülere bakıp sadece `app/static/`'i (HTML/CSS/JS) iyileştirir: ilk izlenim, hiyerarşi, renk paleti, mobil, erişilebilirlik. Sonra testler çalışır ve sayfa yeniden çekilip konsol hataları ve mobilde yatay taşma kodla kontrol edilir. Sorun çıkarsa ajana bir kez düzelttirilir. Test kırılırsa, yeni JS hatası çıkarsa veya önce çalışan bir demo adımı artık çalışmıyorsa cila tamamen geri alınır, yani ürünü bozamaz. Cila ayrı bir commit'tir, sonuçta her ekranın önce/sonra görüntüleri gösterilir.
 - **Tek tıkla açma:** Kodlama bitince projeye `Baslat-Mac.command` (macOS) ve `Baslat-Windows.bat` (Windows) eklenir. Çift tıklayınca uygulama başlar ve tarayıcıda açılır. Başka bir bilgisayarda ilk açılışta Python ortamını kendisi kurar; bunun için `requirements.txt` kodun import ettiği paketlerden çıkarılır. Windows'ta Python kurulu olmalı.
-- **Paketler:** Sandbox'ta internet yok. Onayladığın paketleri uygulama, projenin `.venv`'ine kurar.
+- **Paketler:** Kodlayıcı paket kuramaz. Onayladığın paketleri uygulama, projenin `.venv`'ine kurar.
 - **Durdur / devam et:** Kota dolarsa veya durdurursan, biten görevler commit'lerden bulunur ve kalanlardan devam edilir.
 
 ## Gereksinimler
@@ -166,7 +166,7 @@ Gemini için kullanılabilir modelleri görmek için: `agy models`
 - **Temiz context:** Modeller proje dışındaki boş bir klasörde çalışır, proje dosyalarını görmez.
 - **Güvenli gösterim:** Model çıktıları sayfaya düz metin olarak yazılır (`textContent`). Çıktının içindeki HTML/script çalışmaz. Model linklerinden sadece `http`/`https` olanlar tıklanabilir.
 - **Kısıtlı web erişimi:** Araştırmada Claude'a sadece arama ve okuma araçları verilir. GPT salt okunur sandbox'ta çalışır. Skill'ler, kaynak metnindeki talimatların yok sayılmasını söyler (prompt injection).
-- **Kodlama sandbox'ı:** Kodlayıcı ve üretilen testler işletim sistemi sandbox'ında çalışır: proje klasörü dışına yazma ve internet kapalı. Sandbox dosya *okumayı* engellemez; bu yüzden üretilen projeye de push öncesi sızıntı taraması kurulur. Paket kurulumu ve her plan senin onayınla yapılır.
+- **Kodlama sandbox'ı:** Kodlayıcı, üretilen testler ve UI cilası sırasında açılan uygulama işletim sistemi sandbox'ında çalışır ve proje klasörü dışına yazamaz. Testler internetsiz çalışır. Claude kodlayıcı ile UI cilası sunucusunun ağ bağlantısı açıktır: Claude'un kendi sunucusuna ulaşması, uygulamanın da port açabilmesi için gerekir (ağsız sandbox localhost'ta bile port açtırmıyor). Sandbox dosya *okumayı* engellemez; bu yüzden üretilen projeye de push öncesi sızıntı taraması kurulur. Paket kurulumu ve her plan senin onayınla yapılır.
 - **Push öncesi tarama:** Her push'tan önce `scripts/pre-push-check.sh` çalışır: gitleaks, API key, kişisel yol ve e-posta taraması. Bulgu varsa push iptal edilir.
 
 ## Proje dosyaları
