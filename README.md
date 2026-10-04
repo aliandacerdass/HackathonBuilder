@@ -174,7 +174,6 @@ Gemini için kullanılabilir modelleri görmek için: `agy models`
 | Dosya | Ne işe yarar |
 |---|---|
 | `RULES.md` | Bu projede çalışan herkes (insan ve ajan) için zorunlu kurallar |
-| `PROJECT_MEMORY.md` | Kararlar, mimari, **kaldığımız yer** |
 | `tasks.md` | Fazlara göre yapılacaklar |
 | `COMMON_ERRORS.md` | Bilinen hatalar ve kontrol listesi |
 | `skills/*.md` | Ajan rolleri (netleştirici, konsey üyesi, jüri, sorgu yazıcı, web araştırmacı, repo inceleyici, sayı ve özellik çıkarıcı, planlayıcı, kodlayıcı, güvenlik inceleyici, demo adımı yazıcı, UI tasarımcısı) |

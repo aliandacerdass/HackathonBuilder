@@ -14,6 +14,9 @@
 # --- Kullanıcı verisi (fikirler + model çıktıları) ---
 runs/
 
+# --- Kişisel geliştirme notları (yerelde kalır) ---
+PROJECT_MEMORY.md
+
 # --- Log / geçici ---
 *.log
 tmp/
