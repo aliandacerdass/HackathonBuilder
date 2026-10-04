@@ -7,10 +7,13 @@ Terminalden:
     python -m backend.builder runs/20260923-220049-cevre-ve-surdurulebilirlik-icin-yapay-ze
 """
 import argparse
+import ast
 import asyncio
+import importlib.metadata
 import json
 import os
 import shutil
+import sys
 import time
 from pathlib import Path
 
@@ -23,6 +26,9 @@ MAX_FIX = 3
 MAX_TASKS = 8
 TEST_CMD = [".venv/bin/python", "-m", "unittest", "discover", "-s", "tests", "-v"]
 TEST_TIMEOUT = 300
+PORT = 8001
+# Plan onayında seçilir: hangi güvenlik bulguları kodlayıcıya düzelttirilir
+FIX_LEVELS = {"high": {"high"}, "medium": {"high", "medium"}, "low": {"high", "medium", "low"}}
 
 
 class BuildStopped(RunnerError):
@@ -117,7 +123,7 @@ async def install_packages(run: Run, project: Path, packages: list[str]):
     run.emit("packages_installed", {"packages": packages})
 
 
-async def build_task(run: Run, project: Path, plan: Plan, i: int) -> dict:
+async def build_task(run: Run, project: Path, plan: Plan, i: int, fix: str = "high") -> dict:
     t = plan.tasks[i]
     stage = f"build_{t.id}"
     run.begin(stage)
@@ -157,12 +163,12 @@ async def build_task(run: Run, project: Path, plan: Plan, i: int) -> dict:
         except RunnerError as e:
             reviewed = False  # "0 bulgu" DEĞİL: inceleme hiç yapılamadı
             run.emit("error", {"stage": stage, "model": "security", "error": str(e)})
-    high = [f for f in findings if f["severity"] == "high"]
+    to_fix = [f for f in findings if f["severity"] in FIX_LEVELS[fix]]
     run.emit("security", {"id": t.id, "findings": findings, "reviewed": reviewed})
-    if high:
+    if to_fix:
         run.emit("task", {"id": t.id, "title": t.title, "status": "fixing security"})
         await timed_code(run, stage, project,
-                         f"Fix these HIGH severity security findings, keep tests passing: {json.dumps(high)}", schema)
+                         f"Fix these security findings, keep tests passing: {json.dumps(to_fix)}", schema)
         ok, out = await run_tests(project)
         run.emit("test", {"id": t.id, "ok": ok, "attempt": attempts + 1, "output": out[-1500:]})
 
@@ -170,7 +176,7 @@ async def build_task(run: Run, project: Path, plan: Plan, i: int) -> dict:
     status = "done" if ok else "tests failing"
     await git(project, "commit", "-qm", f"{t.id}: {t.title}" + ("" if ok else " (testler kırık)"), "--allow-empty")
     result = {"id": t.id, "title": t.title, "status": status, "tests_ok": ok, "fix_attempts": attempts,
-              "security_reviewed": reviewed, "findings": findings, "high_fixed": bool(high)}
+              "security_reviewed": reviewed, "findings": findings, "security_fixed": bool(to_fix)}
     run.emit("task", result)
     return result
 
@@ -216,6 +222,8 @@ async def run_build(run_dir: Path, emit, approve, resume: bool = False) -> dict:
             if not resumable(run.dir):
                 raise RunnerError("devam edilecek plan veya proje yok; --resume olmadan başlat")
             plan = Plan.model_validate(run.load("plan"))
+            opts = run.load("build_options") if (run.dir / "build_options.json").exists() else {}
+            fix, packages = opts.get("fix", "high"), opts.get("packages", [])
             run.emit("plan", plan.model_dump())
             done = await done_task_ids(project)
             run.emit("resume", {"done": sorted(done)})
@@ -223,8 +231,8 @@ async def run_build(run_dir: Path, emit, approve, resume: bool = False) -> dict:
                        for t in plan.tasks if t.id in done]
             for i, t in enumerate(plan.tasks):
                 if t.id not in done:
-                    results.append(await build_task(run, project, plan, i))
-            return await finish(run, project, plan, results)
+                    results.append(await build_task(run, project, plan, i, fix))
+            return await finish(run, project, plan, results, packages)
 
         run.begin("build_plan")
         plan = await make_plan(run, ctx)
@@ -234,32 +242,108 @@ async def run_build(run_dir: Path, emit, approve, resume: bool = False) -> dict:
             answer = await approve("plan", plan.model_dump())
         if not answer["ok"]:
             raise BuildStopped("plan reddedildi")
+        fix = answer.get("fix") if answer.get("fix") in FIX_LEVELS else "high"
 
         run.begin("build_setup")
         project = await setup_project(run, plan, ctx)
+        packages = []
         if plan.packages:
             answer = await approve("packages", {"packages": plan.packages})
             if answer["ok"]:
                 await install_packages(run, project, plan.packages)
+                packages = plan.packages
             else:
                 for name in ("AGENTS.md", "CLAUDE.md"):
                     (project / name).write_text((project / name).read_text() +
                                                 f"\n\nDo NOT use these packages (not installed): {plan.packages}\n")
 
+        run.save("build_options", {"fix": fix, "packages": packages})  # --resume aynı seçeneklerle sürer
+
         results = []
         for i in range(len(plan.tasks)):
-            results.append(await build_task(run, project, plan, i))
-        return await finish(run, project, plan, results)
+            results.append(await build_task(run, project, plan, i, fix))
+        return await finish(run, project, plan, results, packages)
     except RunnerError as e:
         run.save_timings("build_timings")
         run.emit("fatal", {"error": str(e), "resumable": resumable(run.dir)})
         raise
 
 
-async def finish(run: Run, project: Path, plan: Plan, results: list[dict]) -> dict:
+MAC_LAUNCHER = """#!/bin/zsh
+# Çift tıkla: uygulamayı başlatır ve tarayıcıda açar. Kapatmak için bu Terminal penceresini kapat.
+cd "${0:A:h}"
+URL="http://127.0.0.1:__PORT__"
+if curl -s -o /dev/null "$URL"; then open "$URL"; exit 0; fi
+if [ ! -x .venv/bin/python ]; then
+  echo "İlk açılış: Python ortamı kuruluyor…"
+  python3 -m venv .venv && .venv/bin/python -m pip install -q -r requirements.txt || { echo "Kurulum başarısız."; read; exit 1; }
+fi
+(until curl -s -o /dev/null "$URL"; do sleep 0.5; done; open "$URL") &
+echo "Uygulama başlıyor… Kapatmak için bu pencereyi kapat."
+.venv/bin/python -m uvicorn app.main:app --port __PORT__
+"""
+
+WIN_LAUNCHER = """@echo off
+rem Cift tikla: uygulamayi baslatir ve tarayicida acar. Kapatmak icin bu pencereyi kapat.
+cd /d "%~dp0"
+set URL=http://127.0.0.1:__PORT__
+if not exist .venv\\Scripts\\python.exe (
+  echo Ilk acilis: Python ortami kuruluyor...
+  py -3 -m venv .venv 2>nul || python -m venv .venv
+  if not exist .venv\\Scripts\\python.exe (
+    echo Python bulunamadi. https://www.python.org adresinden kurun, "Add to PATH" kutusunu isaretleyin.
+    pause
+    exit /b 1
+  )
+  .venv\\Scripts\\python -m pip install -q -r requirements.txt
+)
+start "" /min powershell -NoProfile -Command "while($true){try{Invoke-WebRequest -UseBasicParsing '%URL%' | Out-Null; break}catch{Start-Sleep -Milliseconds 500}}; Start-Process '%URL%'"
+echo Uygulama basliyor... Kapatmak icin bu pencereyi kapat.
+.venv\\Scripts\\python -m uvicorn app.main:app --port __PORT__
+pause
+"""
+
+
+def app_requirements(project: Path, packages: list[str]) -> list[str]:
+    """app/ kodunun import ettiği dış paketler. Proje venv'i sistem paketlerini görür (--system-site-packages),
+    kodlayıcı onaysız bir paket kullanmış olabilir: başka bilgisayarda kurulum için hepsi yazılmalı."""
+    mods = set()
+    for f in (project / "app").rglob("*.py"):
+        for node in ast.walk(ast.parse(f.read_text())):
+            if isinstance(node, ast.Import):
+                mods |= {a.name.split(".")[0] for a in node.names}
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                mods.add(node.module.split(".")[0])
+    dists = importlib.metadata.packages_distributions()  # modül → pip paketi (PIL → pillow)
+    reqs = {"fastapi", "uvicorn", *packages}
+    for m in mods - set(sys.stdlib_module_names) - {"app"}:
+        reqs.update(dists.get(m, [m]))
+    return sorted(reqs, key=str.lower)
+
+
+async def add_launchers(project: Path, packages: list[str]) -> list[str]:
+    """Tek tıkla açma: macOS .command + Windows .bat (+ başka bilgisayarda kurulum için requirements.txt).
+    LLM'e değil koda yazdırılır: her projede aynı, test edilmiş dosyalar."""
+    req = project / "requirements.txt"  # kodlayıcı yazdıysa eksik paketler eklenir
+    lines = req.read_text().splitlines() if req.exists() else []
+    have = {l.split("=")[0].split("<")[0].split(">")[0].strip().lower() for l in lines}
+    lines += [r for r in app_requirements(project, packages) if r.lower() not in have]
+    req.write_text("\n".join(lines) + "\n")
+    mac, win = project / "Baslat-Mac.command", project / "Baslat-Windows.bat"
+    mac.write_text(MAC_LAUNCHER.replace("__PORT__", str(PORT)))
+    mac.chmod(0o755)
+    win.write_bytes(WIN_LAUNCHER.replace("__PORT__", str(PORT)).replace("\n", "\r\n").encode())
+    await git(project, "add", "-A")
+    if (await git(project, "status", "--porcelain")).strip():
+        await git(project, "commit", "-qm", "Tek tıkla açma: Baslat-Mac.command ve Baslat-Windows.bat")
+    return [mac.name, win.name]
+
+
+async def finish(run: Run, project: Path, plan: Plan, results: list[dict], packages: list[str]) -> dict:
+    launchers = await add_launchers(project, packages)
     ok, out = await run_tests(project)
     result = {"project": str(project), "tasks": results, "all_tests_ok": ok, "final_test_output": out[-1500:],
-              "run_command": ".venv/bin/python -m uvicorn app.main:app --port 8001",
+              "run_command": f".venv/bin/python -m uvicorn app.main:app --port {PORT}", "launchers": launchers,
               "demo_steps": plan.demo_steps}
     run.save("build", result)
     total, stages = run.save_timings("build_timings")
@@ -280,6 +364,10 @@ async def terminal_approve(kind: str, data: dict) -> dict:
         print(f"\n📦 Kurulacak pip paketleri (internetten indirilecek): {data['packages']}")
     ans = (await asyncio.to_thread(input, "Onaylıyor musun? (e = evet / not yaz = düzelt / boş = hayır): ")).strip()
     if ans.lower() in ("e", "evet", "y", "yes"):
+        if kind == "plan":
+            lvl = (await asyncio.to_thread(
+                input, "Düzeltilecek güvenlik bulguları? (high / medium = high+medium / low = hepsi) [medium]: ")).strip()
+            return {"ok": True, "note": "", "fix": lvl if lvl in FIX_LEVELS else "medium"}
         return {"ok": True, "note": ""}
     return {"ok": False, "note": ans}
 
@@ -324,7 +412,8 @@ def main():
     r = asyncio.run(run_build(run_dir, print_event, terminal_approve, resume=a.resume))
     print(f"\n🏁 {sum(t['tests_ok'] for t in r['tasks'])}/{len(r['tasks'])} görev testleri geçti · "
           f"son test: {'✓' if r['all_tests_ok'] else '✗'}")
-    print(f"📁 {r['project']}\n▶ cd {r['project']} && {r['run_command']}")
+    print(f"📁 {r['project']}\n▶ çift tıkla: {r['launchers'][0]} (Windows: {r['launchers'][1]})"
+          f"\n▶ ya da: cd {r['project']} && {r['run_command']}")
 
 
 if __name__ == "__main__":

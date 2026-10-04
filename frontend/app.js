@@ -387,7 +387,7 @@ async function answer(ok, note, box) {
   const res = await fetch(`/api/runs/${runId}/build/approve`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ok, note }),
+    body: JSON.stringify({ ok, note, fix: box.querySelector("#fix-level")?.value || "high" }),
   });
   if (res.ok) box.remove();
   else box.append(el("p", "error", (await res.json()).detail));
@@ -405,6 +405,16 @@ function renderApproval({ kind, data }) {
     const ul = el("ul");
     ul.append(el("li", null, `Ek paketler: ${data.packages.length ? data.packages.join(", ") : "yok"}`));
     box.append(ul);
+    const fix = el("select");
+    fix.id = "fix-level";
+    [["medium", "high + medium"], ["high", "sadece high"], ["low", "hepsi (low dahil)"]].forEach(([v, t]) => {
+      const o = el("option", null, t);
+      o.value = v;
+      fix.append(o);
+    });
+    const fl = el("label", "fix", "Düzeltilecek güvenlik bulguları ");
+    fl.append(fix);
+    box.append(fl, el("p", "hint", "Her düzeltme ek bir kodlama turu: daha uzun sürer, daha çok kota harcar."));
     note.placeholder = "Düzeltme notu, ör. T6'yı çıkar, haritayı basit tut";
     note.setAttribute("aria-label", "Plan düzeltme notu");
     row.append(yes, note, no);
@@ -427,7 +437,11 @@ function renderResult(r) {
   const box = el("div", "result");
   const passed = r.tasks.filter((t) => t.tests_ok).length;
   box.append(el("h3", "eyebrow", `${passed}/${r.tasks.length} görev testleri geçti · son test ${r.all_tests_ok ? "✓" : "✗"}`));
-  box.append(el("p", "hint", "Çalıştırmak için terminalde:"), el("code", null, `cd ${r.project} && ${r.run_command}`));
+  if (r.launchers) {
+    box.append(el("p", "hint", "Tek tıkla açmak için proje klasöründe çift tıkla:"),
+      el("code", null, `${r.launchers[0]}  (Windows: ${r.launchers[1]})`));
+  }
+  box.append(el("p", "hint", "Ya da terminalde:"), el("code", null, `cd ${r.project} && ${r.run_command}`));
   if (r.demo_steps.length) {
     box.append(el("h3", "eyebrow", "Jüriye demo"));
     const ol = el("ol");

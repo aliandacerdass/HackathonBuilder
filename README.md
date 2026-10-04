@@ -48,7 +48,8 @@ Fikir + seçili özellikler ──▶ Plan ──▶ 👤 Plan onayı ──▶ 
 - **Ürün HackathonBuilder'ın dışına yazılır:** `~/HackathonBuilderProjects/<tur-klasörü>/`. Her ürün kendi git reposudur, her görev ayrı commit olur. Sızıntı kontrolü hook'u ürüne de kurulur.
 - **Kodlayıcı sandbox'ta çalışır:** Kod `codex sandbox` (macOS işletim sistemi sandbox'ı) içinde yazılır. Proje klasörü dışına yazamaz, internete çıkamaz. Varsayılan kodlayıcı Claude (`codex sandbox` Codex kotası harcamaz), `HB_CODER=codex` ile Codex.
 - **Testleri ajan değil uygulama çalıştırır.** Ajanın "testler geçti" demesine güvenilmez.
-- **Güvenlik incelemesi:** Her görevin diff'ini Claude inceler. High bulgular düzeltilir, low/medium bulgular raporda kalır.
+- **Güvenlik incelemesi:** Her görevin diff'ini Claude inceler. Hangi bulguların düzeltileceğini plan onayında seçersin: sadece high, high + medium (varsayılan) veya hepsi. Kalanlar raporda görünür.
+- **Tek tıkla açma:** Kodlama bitince projeye `Baslat-Mac.command` (macOS) ve `Baslat-Windows.bat` (Windows) eklenir. Çift tıklayınca uygulama başlar ve tarayıcıda açılır. Başka bir bilgisayarda ilk açılışta Python ortamını kendisi kurar; bunun için `requirements.txt` kodun import ettiği paketlerden çıkarılır. Windows'ta Python kurulu olmalı.
 - **Paketler:** Sandbox'ta internet yok. Onayladığın paketleri uygulama, projenin `.venv`'ine kurar.
 - **Durdur / devam et:** Kota dolarsa veya durdurursan, biten görevler commit'lerden bulunur ve kalanlardan devam edilir.
 
@@ -104,7 +105,7 @@ Konuyu girerken **Sonuç dili**ni seç (Türkçe/İngilizce). Fikirler, araştı
 
 Kararı kaydettikten sonra **Bu fikir için araştırma yap**'a bas. Araştırma bitince eklemek istediğin özellikleri işaretleyip **Seçili özellikleri kaydet**'e bas.
 
-Sonra **Kodlamaya başla**'ya bas. Planı ve kurulacak paketleri onayla (reddedersen not yazarak planı bir kez yeniden yazdırabilirsin). Görevler canlı akar, **Durdur** ile kesebilir, **Kaldığı yerden devam et** ile sürdürebilirsin. Bitince ürünün nasıl çalıştırılacağı ve test/güvenlik raporu gösterilir.
+Sonra **Kodlamaya başla**'ya bas. Planı onaylarken hangi güvenlik bulgularının düzeltileceğini seç, sonra kurulacak paketleri onayla (reddedersen not yazarak planı bir kez yeniden yazdırabilirsin). Görevler canlı akar, **Durdur** ile kesebilir, **Kaldığı yerden devam et** ile sürdürebilirsin. Bitince ürünün nasıl çalıştırılacağı ve test/güvenlik raporu gösterilir.
 
 **Terminalde:**
 
@@ -115,7 +116,7 @@ python -m backend.builder runs/<tur-klasörü>       # kodlama (onaylar terminal
 python -m backend.builder runs/<tur-klasörü> --resume   # durduysa kaldığı yerden devam
 ```
 
-Üretilen ürünü çalıştırmak için:
+Üretilen ürünü açmak için proje klasöründe `Baslat-Mac.command` (Windows'ta `Baslat-Windows.bat`) dosyasına çift tıkla. Ya da terminalden:
 
 ```bash
 cd ~/HackathonBuilderProjects/<tur-klasörü>
@@ -138,6 +139,7 @@ Her tur `runs/<tarih>-<konu>/` klasörüne kaydedilir:
 | `research_timings.json` | Araştırma aşama ve model süreleri |
 | `research_decision.json` | Seçtiğin özellikler ve notun |
 | `plan.json` | Onaylanan kodlama planı: görevler, paketler, dosya ağacı |
+| `build_options.json` | Plan onayındaki güvenlik düzeltme seviyesi ve kurulan paketler (`--resume` bunları kullanır) |
 | `build.json` | Görev sonuçları, son test çıktısı, çalıştırma komutu, demo adımları |
 | `build_timings.json` | Kodlama aşama süreleri |
 

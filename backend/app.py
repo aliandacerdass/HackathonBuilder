@@ -6,7 +6,7 @@ POST /api/runs/{id}/decision   → kullanıcının seçtiği fikir → decision.
 POST /api/runs/{id}/research   → V2 araştırmayı başlatır, {research_id} döner (olaylar aynı /events ile)
 POST /api/runs/{id}/research-decision → seçilen özellikler → research_decision.json
 POST /api/runs/{id}/build      → V3 kodlamayı başlatır ({resume}), {build_id} döner
-POST /api/runs/{id}/build/approve → bekleyen plan/paket onayına cevap ({ok, note})
+POST /api/runs/{id}/build/approve → bekleyen plan/paket onayına cevap ({ok, note, fix})
 POST /api/runs/{id}/build/stop → kodlamayı durdurur (sonra resume ile devam edilebilir)
 """
 import asyncio
@@ -100,6 +100,7 @@ class BuildIn(BaseModel):
 class ApproveIn(BaseModel):
     ok: bool
     note: str = ""
+    fix: Literal["high", "medium", "low"] = "high"  # plan onayında: düzeltilecek güvenlik bulguları
 
 
 @app.get("/")
@@ -223,7 +224,7 @@ async def build_approve(run_id: str, body: ApproveIn):
     b = LIVE.get(f"{run_id}-b")
     if not b or not b.pending or b.pending.done():
         raise HTTPException(400, "Onay bekleyen bir şey yok")
-    b.pending.set_result({"ok": body.ok, "note": body.note.strip()})
+    b.pending.set_result({"ok": body.ok, "note": body.note.strip(), "fix": body.fix})
     return {"ok": True}
 
 
