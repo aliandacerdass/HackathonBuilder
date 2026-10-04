@@ -19,8 +19,8 @@ from pathlib import Path
 
 from .pipeline import ROOT, RUNS, SKILLS, Run, RunnerError, call_first
 from .runners import CODER, code, kill_tree
-from .schemas import CodeReport, Plan, SecurityReview, json_schema
-from .ui import SHOTS, capture
+from .schemas import CodeReport, DemoScript, Plan, SecurityReview, json_schema
+from .ui import SHOTS, capture, clean_steps
 
 PROJECTS = Path.home() / "HackathonBuilderProjects"
 MAX_FIX = 3
@@ -290,11 +290,32 @@ async def keep_static_only(project: Path) -> list[str]:
 
 
 def ui_issues(before: dict, after: dict) -> tuple[list[str], list[str]]:
-    """(bozan sorunlar, kalan kusurlar): yeni JS hatası bozar, mobil taşma sadece kusur."""
+    """(bozan sorunlar, kalan kusurlar): yeni JS hatası veya kırılan demo adımı bozar, yatay taşma sadece kusur."""
+    breaking = []
     new_errors = [e for e in after["errors"] if e not in before["errors"]]
-    breaking = [f"New browser console errors: {new_errors}"] if new_errors else []
-    flaws = [f"Horizontal scroll on {v} viewport" for v in after["overflow"]]
+    if new_errors:
+        breaking.append(f"New browser console errors: {new_errors}")
+    if after["completed"] < before["completed"]:
+        breaking.append(f"The demo flow broke (it worked before your changes): {after['failed']}")
+    flaws = [f"Horizontal scroll on screenshot {v}" for v in after["overflow"]]
     return breaking, flaws
+
+
+def shot_list(cap: dict) -> str:
+    return ", ".join(f"{SHOTS}/{n}" for n in cap["shots"])
+
+
+async def demo_steps(run: Run, project: Path, plan: Plan) -> list[dict]:
+    """Ajan kodu okuyup demoyu tarayıcı eylemlerine çevirir (JSON, kod değil). Olmazsa sadece ilk ekran çekilir."""
+    run.emit("ui", {"status": "scripting"})
+    try:
+        script = await timed_code(run, "build_ui", project, (SKILLS / "demo-scripter.md").read_text() +
+                                  f"\n\n## This task\nDemo steps: {json.dumps(plan.demo_steps, ensure_ascii=False)}",
+                                  json_schema(DemoScript))
+        return clean_steps([s.model_dump() for s in DemoScript.model_validate(script).steps])
+    except (RunnerError, ValueError) as e:
+        run.emit("error", {"stage": "build_ui", "model": "demo-script", "error": str(e)[:300]})
+        return []
 
 
 async def polish_ui(run: Run, project: Path, plan: Plan) -> dict:
@@ -311,16 +332,18 @@ async def polish_ui(run: Run, project: Path, plan: Plan) -> dict:
     lang = {"tr": "Turkish", "en": "English"}[run.load("input").get("lang", "tr")]
     schema = json_schema(CodeReport)
 
+    steps = await demo_steps(run, project, plan)
     run.emit("ui", {"status": "capturing"})
-    before = await capture(project, "before")
+    before = await capture(project, "before", steps)
     run.emit("ui", {"status": "designing"})
     report = await timed_code(run, stage, project, (SKILLS / "ui-designer.md").read_text() + f"""
 
 ## This task
-Screenshots: {SHOTS}/before-desktop.png, {SHOTS}/before-mobile.png
+Screenshots, in demo order (first page load, then the screens after demo interactions; desktop then mobile):
+{shot_list(before)}
 Product: {plan.summary}
 Demo steps the jury will see: {json.dumps(plan.demo_steps, ensure_ascii=False)}
-Problems found by automatic checks: {json.dumps(before["errors"] + [f"Horizontal scroll on {v}" for v in before["overflow"]])}
+Problems found by automatic checks: {json.dumps(before["errors"] + [f"Horizontal scroll on {v}" for v in before["overflow"]] + ([f"Demo flow stopped: {before['failed']}"] if before["failed"] else []))}
 UI language: {lang}
 Improve the UI now, then report.""", schema)
 
@@ -330,7 +353,7 @@ Improve the UI now, then report.""", schema)
         ok, out = await run_tests(project)
         if ok:
             run.emit("ui", {"status": "checking"})
-            after = await capture(project, "after")
+            after = await capture(project, "after", steps)
             breaking, flaws = ui_issues(before, after)
         else:
             breaking, flaws = [f"Tests fail:\n{out[-3000:]}"], []
@@ -340,8 +363,9 @@ Improve the UI now, then report.""", schema)
         run.emit("ui", {"status": "fixing"})
         await timed_code(run, stage, project,
                          f"Your UI changes in app/static caused these problems. Fix them by editing app/static only, "
-                         f"keep the design. Screenshots of the result: {SHOTS}/after-desktop.png, "
-                         f"{SHOTS}/after-mobile.png\nProblems: {json.dumps(breaking + flaws)}", schema)
+                         f"keep the design and keep every element the demo uses. Screenshots of the result: "
+                         f"{shot_list(after) if after else 'none (tests fail)'}\nProblems: {json.dumps(breaking + flaws)}",
+                         schema)
 
     if breaking:  # ürünü bozdu → hepsini geri al
         await git(project, "checkout", "HEAD", "--", STATIC)
@@ -353,13 +377,14 @@ Improve the UI now, then report.""", schema)
         status = "done"
 
     shots_dir = run.dir / "ui"  # arayüz önce/sonra görüntülerini buradan sunar
-    shots_dir.mkdir(exist_ok=True)
+    shutil.rmtree(shots_dir, ignore_errors=True)
+    shots_dir.mkdir()
     shots = []
     for name in before["shots"] + (after["shots"] if after else []):
         shutil.copy(project / SHOTS / name, shots_dir / name)
         shots.append(name)
     result = {"status": status, "summary": report.get("summary", ""), "problems": breaking + flaws,
-              "fix_round": fixed, "shots": shots}
+              "fix_round": fixed, "shots": shots, "demo_steps_run": f"{before['completed']}/{len(steps)}"}
     run.emit("ui", result)
     return result
 

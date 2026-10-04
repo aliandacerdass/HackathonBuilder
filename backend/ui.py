@@ -2,11 +2,15 @@
 
 Sunucu `codex sandbox` içinde çalışır (proje dışına yazamaz). Ağ kapalı sandbox'ta port açılamadığı için
 ağ açık modda çalışır. Tarayıcı bizim tarafta, sadece localhost'a gider.
+
+Demo adımları (DemoScript) LLM'den JSON olarak gelir, kod değildir: sadece sabit eylemler (click, fill, select,
+upload, wait) uygulanır. Aynı adımlar cila öncesi ve sonrası koşar: önce çalışan adım sonra kırılırsa cila bozmuştur.
 """
 import asyncio
 import socket
 from pathlib import Path
 
+from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import async_playwright
 
 from .pipeline import RunnerError
@@ -18,12 +22,27 @@ SERVE = ["codex", "sandbox", "-c", 'sandbox_mode="workspace-write"',
          "-c", "sandbox_workspace_write.network_access=true",
          ".venv/bin/python", "-m", "uvicorn", "app.main:app", "--port"]
 START_TIMEOUT = 30
+ACTIONS = {"click", "fill", "select", "upload", "wait"}
+MAX_STEPS, MAX_SHOTS = 15, 3
+STEP_TIMEOUT = 5000  # ms
 
 
 def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
+
+def clean_steps(steps: list[dict]) -> list[dict]:
+    """Bilinmeyen eylemleri at, adım ve ekran görüntüsü sayısını sınırla."""
+    out, shots = [], 0
+    for s in steps:
+        if s["action"] not in ACTIONS or (s["action"] != "wait" and not s["selector"].strip()):
+            continue
+        shot = s["screenshot"] and shots < MAX_SHOTS
+        shots += shot
+        out.append({**s, "screenshot": shot})
+    return out[:MAX_STEPS]
 
 
 async def wait_up(port: int, proc) -> None:
@@ -39,35 +58,80 @@ async def wait_up(port: int, proc) -> None:
     raise RunnerError(f"uygulama {START_TIMEOUT}s içinde açılmadı")
 
 
-async def capture(project: Path, tag: str) -> dict:
-    """Ana sayfayı masaüstü + mobilde çeker → .hb/ui/<tag>-<viewport>.png.
-    Kodla kontrol: konsol/sayfa hataları, mobilde yatay taşma."""
+async def run_step(page, project: Path, s: dict) -> None:
+    a = s["action"]
+    if a == "wait":
+        try:
+            ms = int(s["value"])
+        except ValueError:
+            ms = 1000
+        await page.wait_for_timeout(max(0, min(ms, 5000)))
+        return
+    loc = page.locator(s["selector"]).first
+    if a == "click":
+        await loc.click(timeout=STEP_TIMEOUT)
+    elif a == "fill":
+        await loc.fill(s["value"], timeout=STEP_TIMEOUT)
+    elif a == "select":
+        await loc.select_option(s["value"], timeout=STEP_TIMEOUT)
+    elif a == "upload":  # sadece proje içindeki dosyalar
+        f = (project / s["value"]).resolve()
+        if not f.is_relative_to(project.resolve()) or not f.is_file():
+            raise RunnerError(f"yüklenecek dosya proje içinde yok: {s['value']}")
+        await loc.set_input_files(f, timeout=STEP_TIMEOUT)
+    await page.wait_for_timeout(800)  # tepki (fetch, çizim) otursun
+
+
+async def capture(project: Path, tag: str, steps: list[dict] = ()) -> dict:
+    """Her viewport'ta: ilk açılışı çek → demo adımlarını uygula, işaretli adımlardan sonra çek.
+    → .hb/ui/<tag>-<viewport>.png, <tag>-<viewport>-<n>.png
+    Kodla kontrol: konsol/sayfa hataları, her görüntüde yatay taşma, kaç adımın çalıştığı."""
     out = project / SHOTS
     out.mkdir(parents=True, exist_ok=True)
+    for old in out.glob(f"{tag}-*.png"):
+        old.unlink()
     port = free_port()
     proc = await asyncio.create_subprocess_exec(
         *SERVE, str(port), cwd=project, stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL, start_new_session=True)
-    errors, overflow = [], []
+    errors, overflow, shots, completed, failed = [], [], [], len(steps), None
     try:
         await wait_up(port, proc)
         async with async_playwright() as p:
             browser = await p.chromium.launch()
             try:
-                for name, (w, h) in VIEWPORTS.items():
+                for vp, (w, h) in VIEWPORTS.items():
                     page = await browser.new_page(viewport={"width": w, "height": h})
                     page.on("console", lambda m: m.type == "error" and errors.append(m.text[:300]))
                     page.on("pageerror", lambda e: errors.append(str(e)[:300]))
+
+                    async def shoot(name: str):
+                        await page.screenshot(path=out / f"{name}.png", full_page=True)
+                        shots.append(f"{name}.png")
+                        if await page.evaluate("document.documentElement.scrollWidth > window.innerWidth + 1"):
+                            overflow.append(name.removeprefix(f"{tag}-"))
+
                     await page.goto(f"http://127.0.0.1:{port}/", wait_until="load")
                     await page.wait_for_timeout(1500)  # ilk fetch'ler dolsun
-                    await page.screenshot(path=out / f"{tag}-{name}.png", full_page=True)
-                    if await page.evaluate("document.documentElement.scrollWidth > window.innerWidth + 1"):
-                        overflow.append(name)
+                    await shoot(f"{tag}-{vp}")
+                    n = 0
+                    for i, s in enumerate(steps):
+                        try:
+                            await run_step(page, project, s)
+                        except (PlaywrightError, RunnerError) as e:
+                            if i < completed:
+                                completed = i
+                                failed = f"step {i + 1} ({s['action']} {s['selector']}) on {vp}: " \
+                                         f"{str(e).splitlines()[0][:200]}"
+                            break
+                        if s["screenshot"]:
+                            n += 1
+                            await shoot(f"{tag}-{vp}-{n}")
                     await page.close()
             finally:
                 await browser.close()
     finally:
         kill_tree(proc)
         await proc.wait()
-    return {"errors": sorted(set(errors)), "overflow": overflow,
-            "shots": [f"{tag}-{n}.png" for n in VIEWPORTS]}
+    return {"errors": sorted(set(errors)), "overflow": overflow, "shots": shots,
+            "completed": completed, "failed": failed}

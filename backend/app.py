@@ -8,10 +8,11 @@ POST /api/runs/{id}/research-decision → seçilen özellikler → research_deci
 POST /api/runs/{id}/build      → V3 kodlamayı başlatır ({resume}), {build_id} döner
 POST /api/runs/{id}/build/approve → bekleyen plan/paket onayına cevap ({ok, note, fix})
 POST /api/runs/{id}/build/stop → kodlamayı durdurur (sonra resume ile devam edilebilir)
-GET  /api/runs/{id}/ui/{ad}.png → V4 UI cilası önce/sonra ekran görüntüleri
+GET  /api/runs/{id}/ui/{ad}.png → V4 UI cilası önce/sonra ekran görüntüleri (ilk ekran + demo adımları)
 """
 import asyncio
 import json
+import re
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -229,14 +230,14 @@ async def build_approve(run_id: str, body: ApproveIn):
     return {"ok": True}
 
 
-UI_SHOTS = {f"{t}-{v}.png" for t in ("before", "after") for v in ("desktop", "mobile")}
+UI_SHOT = re.compile(r"(before|after)-(desktop|mobile)(-[1-3])?\.png")
 
 
 @app.get("/api/runs/{run_id}/ui/{name}")
 async def ui_shot(run_id: str, name: str):
-    """UI cilası önce/sonra ekran görüntüleri (sadece sabit isimler: yol geçişi yok)."""
+    """UI cilası önce/sonra ekran görüntüleri (sadece sabit isim kalıbı: yol geçişi yok)."""
     live = LIVE.get(run_id)
-    if name not in UI_SHOTS or not live or not live.run_dir or not (live.run_dir / "ui" / name).exists():
+    if not UI_SHOT.fullmatch(name) or not live or not live.run_dir or not (live.run_dir / "ui" / name).exists():
         raise HTTPException(404, "Görüntü yok")
     return FileResponse(live.run_dir / "ui" / name)
 

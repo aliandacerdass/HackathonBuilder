@@ -49,7 +49,7 @@ Fikir + seçili özellikler ──▶ Plan ──▶ 👤 Plan onayı ──▶ 
 - **Kodlayıcı sandbox'ta çalışır:** Kod `codex sandbox` (macOS işletim sistemi sandbox'ı) içinde yazılır. Proje klasörü dışına yazamaz, internete çıkamaz. Varsayılan kodlayıcı Claude (`codex sandbox` Codex kotası harcamaz), `HB_CODER=codex` ile Codex.
 - **Testleri ajan değil uygulama çalıştırır.** Ajanın "testler geçti" demesine güvenilmez.
 - **Güvenlik incelemesi:** Her görevin diff'ini Claude inceler. Hangi bulguların düzeltileceğini plan onayında seçersin: sadece high, high + medium (varsayılan) veya hepsi. Kalanlar raporda görünür.
-- **UI/UX cilası (V4):** Görevler bitince uygulama sandbox'ta açılır, masaüstü ve mobil ekran görüntüsü alınır. UI ajanı görüntülere bakıp sadece `app/static/`'i (HTML/CSS/JS) iyileştirir: ilk izlenim, hiyerarşi, renk paleti, mobil, erişilebilirlik. Sonra testler çalışır ve sayfa yeniden çekilip konsol hataları ve mobilde yatay taşma kodla kontrol edilir. Sorun çıkarsa ajana bir kez düzelttirilir. Test kırılır veya yeni JS hatası çıkarsa cila tamamen geri alınır, yani ürünü bozamaz. Cila ayrı bir commit'tir, sonuçta önce/sonra görüntüleri gösterilir. Ajan sadece ilk açılış ekranını görür.
+- **UI/UX cilası (V4):** Görevler bitince bir ajan kodu okuyup jüri demosunu tarayıcı adımlarına çevirir (tıkla, doldur, seç, dosya yükle, bekle). Bu adımlar kod değil, JSON listesidir; uygulamayı bizim kod yapar ve proje dışından dosya yüklenemez. Uygulama sandbox'ta açılır, demo adımlarıyla gezilir ve ilk ekranla birlikte demo ekranları masaüstünde ve mobilde çekilir. UI ajanı görüntülere bakıp sadece `app/static/`'i (HTML/CSS/JS) iyileştirir: ilk izlenim, hiyerarşi, renk paleti, mobil, erişilebilirlik. Sonra testler çalışır ve sayfa yeniden çekilip konsol hataları ve mobilde yatay taşma kodla kontrol edilir. Sorun çıkarsa ajana bir kez düzelttirilir. Test kırılırsa, yeni JS hatası çıkarsa veya önce çalışan bir demo adımı artık çalışmıyorsa cila tamamen geri alınır, yani ürünü bozamaz. Cila ayrı bir commit'tir, sonuçta her ekranın önce/sonra görüntüleri gösterilir.
 - **Tek tıkla açma:** Kodlama bitince projeye `Baslat-Mac.command` (macOS) ve `Baslat-Windows.bat` (Windows) eklenir. Çift tıklayınca uygulama başlar ve tarayıcıda açılır. Başka bir bilgisayarda ilk açılışta Python ortamını kendisi kurar; bunun için `requirements.txt` kodun import ettiği paketlerden çıkarılır. Windows'ta Python kurulu olmalı.
 - **Paketler:** Sandbox'ta internet yok. Onayladığın paketleri uygulama, projenin `.venv`'ine kurar.
 - **Durdur / devam et:** Kota dolarsa veya durdurursan, biten görevler commit'lerden bulunur ve kalanlardan devam edilir.
@@ -144,7 +144,7 @@ Her tur `runs/<tarih>-<konu>/` klasörüne kaydedilir:
 | `build_options.json` | Plan onayındaki güvenlik düzeltme seviyesi ve kurulan paketler (`--resume` bunları kullanır) |
 | `build.json` | Görev sonuçları, son test çıktısı, çalıştırma komutu, demo adımları |
 | `build_timings.json` | Kodlama aşama süreleri |
-| `ui/*.png` | UI cilası önce/sonra ekran görüntüleri (masaüstü + mobil) |
+| `ui/*.png` | UI cilası önce/sonra ekran görüntüleri: ilk ekran + en fazla 3 demo ekranı, masaüstü + mobil |
 
 `runs/` git'e gönderilmez, fikirlerin bilgisayarında kalır. Ürünün kodu `~/HackathonBuilderProjects/<tur-klasörü>/` içindedir.
 
@@ -177,7 +177,7 @@ Gemini için kullanılabilir modelleri görmek için: `agy models`
 | `PROJECT_MEMORY.md` | Kararlar, mimari, **kaldığımız yer** |
 | `tasks.md` | Fazlara göre yapılacaklar |
 | `COMMON_ERRORS.md` | Bilinen hatalar ve kontrol listesi |
-| `skills/*.md` | Ajan rolleri (netleştirici, konsey üyesi, jüri, sorgu yazıcı, web araştırmacı, repo inceleyici, sayı ve özellik çıkarıcı, planlayıcı, kodlayıcı, güvenlik inceleyici, UI tasarımcısı) |
+| `skills/*.md` | Ajan rolleri (netleştirici, konsey üyesi, jüri, sorgu yazıcı, web araştırmacı, repo inceleyici, sayı ve özellik çıkarıcı, planlayıcı, kodlayıcı, güvenlik inceleyici, demo adımı yazıcı, UI tasarımcısı) |
 
 ## Yol haritası
 

@@ -469,13 +469,17 @@ function renderUi(ui) {
   sec.append(el("h3", "eyebrow", "Arayüz cilası"), el("p", null, UI_STATUS[ui.status] || ui.status));
   if (ui.summary) sec.append(el("p", "hint", ui.summary));
   ui.problems.forEach((p) => sec.append(el("p", "error", p)));
+  if (ui.demo_steps_run) sec.append(el("p", "hint", `Demo adımları çalıştı: ${ui.demo_steps_run}`));
   const has = (n) => ui.shots.includes(n);
-  ["desktop", "mobile"].forEach((v) => {
-    if (!has(`before-${v}.png`)) return;
+  // ilk ekran + demo adımlarından sonraki ekranlar: her biri için önce | sonra
+  ui.shots.filter((n) => n.startsWith("before-")).forEach((b) => {
+    const key = b.slice("before-".length, -".png".length);  // desktop, desktop-1, mobile-2…
+    const [v, step] = key.split("-");
+    const where = `${v === "desktop" ? "masaüstü" : "mobil"}${step ? `, demo ekranı ${step}` : ", ilk ekran"}`;
     const grid = el("div", "shots");
     [["before", "Önce"], ["after", "Sonra"]].forEach(([t, label]) => {
-      if (!has(`${t}-${v}.png`)) return;
-      const src = `/api/runs/${runId}/ui/${t}-${v}.png?${Date.now()}`;
+      if (!has(`${t}-${key}.png`)) return;
+      const src = `/api/runs/${runId}/ui/${t}-${key}.png?${Date.now()}`;
       const fig = el("figure");
       const a = el("a");
       a.href = src;
@@ -483,7 +487,7 @@ function renderUi(ui) {
       a.rel = "noopener";
       const img = el("img");
       img.src = src;
-      img.alt = `${label}: ${v === "desktop" ? "masaüstü" : "mobil"}`;
+      img.alt = `${label}: ${where}`;
       img.loading = "lazy";
       a.append(img);
       fig.append(a, el("figcaption", "mono", img.alt));
@@ -561,7 +565,7 @@ const buildHandlers = {
     });
   },
   ui(d) {
-    const msg = { capturing: "Ekran görüntüleri alınıyor…", designing: "UI ajanı arayüzü iyileştiriyor…",
+    const msg = { scripting: "Demo adımları çıkarılıyor…", capturing: "Ekran görüntüleri alınıyor (demo akışıyla)…", designing: "UI ajanı arayüzü iyileştiriyor…",
       checking: "Sonuç kontrol ediliyor (testler, konsol, mobil)…", fixing: "UI sorunları düzeltiliyor…" }[d.status];
     if (msg) $("#build-status").textContent = msg;
   },

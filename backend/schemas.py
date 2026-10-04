@@ -166,3 +166,14 @@ class Finding(BaseModel):
 
 class SecurityReview(BaseModel):
     findings: list[Finding]
+
+
+class DemoStep(BaseModel):
+    action: str                 # click | fill | select | upload | wait
+    selector: str               # Playwright seçicisi (CSS veya text=...); wait'te boş
+    value: str                  # fill/select değeri, upload için proje içi dosya yolu, wait için ms
+    screenshot: bool            # bu adımdan sonra ekran görüntüsü alınsın mı
+
+
+class DemoScript(BaseModel):
+    steps: list[DemoStep]
