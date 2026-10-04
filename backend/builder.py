@@ -20,6 +20,7 @@ from pathlib import Path
 from .pipeline import ROOT, RUNS, SKILLS, Run, RunnerError, call_first
 from .runners import CODER, code, kill_tree
 from .schemas import CodeReport, Plan, SecurityReview, json_schema
+from .ui import SHOTS, capture
 
 PROJECTS = Path.home() / "HackathonBuilderProjects"
 MAX_FIX = 3
@@ -27,6 +28,8 @@ MAX_TASKS = 8
 TEST_CMD = [".venv/bin/python", "-m", "unittest", "discover", "-s", "tests", "-v"]
 TEST_TIMEOUT = 300
 PORT = 8001
+STATIC = "app/static/"
+UI_COMMIT = "UI cilası"
 # Plan onayında seçilir: hangi güvenlik bulguları kodlayıcıya düzelttirilir
 FIX_LEVELS = {"high": {"high"}, "medium": {"high", "medium"}, "low": {"high", "medium", "low"}}
 
@@ -269,6 +272,98 @@ async def run_build(run_dir: Path, emit, approve, resume: bool = False) -> dict:
         raise
 
 
+# ---------- V4: UI cilası ----------
+
+async def keep_static_only(project: Path) -> list[str]:
+    """UI ajanı sadece app/static'i değiştirebilir: dışındaki değişiklikleri geri alır."""
+    reverted = []
+    for line in (await git(project, "status", "--porcelain", "-uall")).splitlines():
+        path = line[3:].split(" -> ")[-1]
+        if path.startswith(STATIC):
+            continue
+        if line.startswith("??"):
+            (project / path).unlink(missing_ok=True)
+        else:
+            await git(project, "checkout", "HEAD", "--", path)
+        reverted.append(path)
+    return reverted
+
+
+def ui_issues(before: dict, after: dict) -> tuple[list[str], list[str]]:
+    """(bozan sorunlar, kalan kusurlar): yeni JS hatası bozar, mobil taşma sadece kusur."""
+    new_errors = [e for e in after["errors"] if e not in before["errors"]]
+    breaking = [f"New browser console errors: {new_errors}"] if new_errors else []
+    flaws = [f"Horizontal scroll on {v} viewport" for v in after["overflow"]]
+    return breaking, flaws
+
+
+async def polish_ui(run: Run, project: Path, plan: Plan) -> dict:
+    """Ekran görüntülerine bakan UI ajanı app/static'i iyileştirir. Test kırılır veya JS hatası çıkarsa
+    tüm değişiklik geri alınır: cila ürünü asla bozmaz. Ayrı commit, istenirse `git revert` ile geri alınır."""
+    if UI_COMMIT in (await git(project, "log", "--format=%s")).splitlines():
+        return {"status": "skipped"}  # --resume: zaten yapıldı
+    stage = "build_ui"
+    run.begin(stage)
+    exclude = project / ".git" / "info" / "exclude"
+    excluded = exclude.read_text() if exclude.exists() else ""
+    if ".hb/" not in excluded:
+        exclude.write_text(excluded + "\n.hb/\n")
+    lang = {"tr": "Turkish", "en": "English"}[run.load("input").get("lang", "tr")]
+    schema = json_schema(CodeReport)
+
+    run.emit("ui", {"status": "capturing"})
+    before = await capture(project, "before")
+    run.emit("ui", {"status": "designing"})
+    report = await timed_code(run, stage, project, (SKILLS / "ui-designer.md").read_text() + f"""
+
+## This task
+Screenshots: {SHOTS}/before-desktop.png, {SHOTS}/before-mobile.png
+Product: {plan.summary}
+Demo steps the jury will see: {json.dumps(plan.demo_steps, ensure_ascii=False)}
+Problems found by automatic checks: {json.dumps(before["errors"] + [f"Horizontal scroll on {v}" for v in before["overflow"]])}
+UI language: {lang}
+Improve the UI now, then report.""", schema)
+
+    after, fixed = None, False
+    for attempt in range(2):  # 1 cila + en fazla 1 düzeltme
+        await keep_static_only(project)
+        ok, out = await run_tests(project)
+        if ok:
+            run.emit("ui", {"status": "checking"})
+            after = await capture(project, "after")
+            breaking, flaws = ui_issues(before, after)
+        else:
+            breaking, flaws = [f"Tests fail:\n{out[-3000:]}"], []
+        if not breaking and not flaws or attempt == 1:
+            break
+        fixed = True
+        run.emit("ui", {"status": "fixing"})
+        await timed_code(run, stage, project,
+                         f"Your UI changes in app/static caused these problems. Fix them by editing app/static only, "
+                         f"keep the design. Screenshots of the result: {SHOTS}/after-desktop.png, "
+                         f"{SHOTS}/after-mobile.png\nProblems: {json.dumps(breaking + flaws)}", schema)
+
+    if breaking:  # ürünü bozdu → hepsini geri al
+        await git(project, "checkout", "HEAD", "--", STATIC)
+        await git(project, "clean", "-fdq", "--", STATIC)
+        status = "reverted"
+    else:
+        await git(project, "add", "-A", "--", STATIC)
+        await git(project, "commit", "-qm", UI_COMMIT, "--allow-empty")
+        status = "done"
+
+    shots_dir = run.dir / "ui"  # arayüz önce/sonra görüntülerini buradan sunar
+    shots_dir.mkdir(exist_ok=True)
+    shots = []
+    for name in before["shots"] + (after["shots"] if after else []):
+        shutil.copy(project / SHOTS / name, shots_dir / name)
+        shots.append(name)
+    result = {"status": status, "summary": report.get("summary", ""), "problems": breaking + flaws,
+              "fix_round": fixed, "shots": shots}
+    run.emit("ui", result)
+    return result
+
+
 MAC_LAUNCHER = """#!/bin/zsh
 # Çift tıkla: uygulamayı başlatır ve tarayıcıda açar. Kapatmak için bu Terminal penceresini kapat.
 cd "${0:A:h}"
@@ -340,10 +435,17 @@ async def add_launchers(project: Path, packages: list[str]) -> list[str]:
 
 
 async def finish(run: Run, project: Path, plan: Plan, results: list[dict], packages: list[str]) -> dict:
+    try:
+        ui = await polish_ui(run, project, plan)
+    except Exception as e:  # cila isteğe bağlı: kota/tarayıcı hatası ürünü bitirmeyi engellemez
+        await git(project, "checkout", "HEAD", "--", STATIC)
+        await git(project, "clean", "-fdq", "--", STATIC)
+        run.emit("error", {"stage": "build_ui", "model": "ui", "error": str(e)})
+        ui = {"status": "failed", "summary": "", "problems": [str(e)[:300]], "fix_round": False, "shots": []}
     launchers = await add_launchers(project, packages)
     ok, out = await run_tests(project)
     result = {"project": str(project), "tasks": results, "all_tests_ok": ok, "final_test_output": out[-1500:],
-              "run_command": f".venv/bin/python -m uvicorn app.main:app --port {PORT}", "launchers": launchers,
+              "run_command": f".venv/bin/python -m uvicorn app.main:app --port {PORT}", "launchers": launchers, "ui": ui,
               "demo_steps": plan.demo_steps}
     run.save("build", result)
     total, stages = run.save_timings("build_timings")

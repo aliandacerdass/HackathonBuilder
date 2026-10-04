@@ -22,6 +22,7 @@
 | Codex kotası doldu | `usage limit. Upgrade to Plus... try again at Oct 2nd` | Kodlayıcı alternatifi: Claude Code OS sandbox içinde |
 | İzin kuralı `Write(./**)` işe yaramaz | "not matched by file permission checks" | `Edit(./**)` kullan |
 | `codex sandbox claude` durdurulunca claude yetim kalır | Üst süreç öldü, claude PPID=1 ile çalışıp kota yemeye devam etti | `start_new_session=True` + `kill_tree()` (os.killpg); timeout ve iptal ikisinde de |
+| Sandbox'ta sunucu port açamıyor | `[Errno 1] error while attempting to bind ... operation not permitted` | `codex sandbox` ağ kapalıyken localhost'a bile bind yok → `sandbox_workspace_write.network_access=true` (yazma yine proje içiyle sınırlı) |
 | agy uzun işte timeout | Yarım çıktı | Tek çağrıya tek iş, `--print-timeout` ver |
 
 ## Her Değişiklik Sonrası Kontrol Listesi

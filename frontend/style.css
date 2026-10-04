@@ -228,3 +228,10 @@ a:hover { text-decoration-color: var(--cream); }
 .result { max-width: 820px; margin-top: 16px; }
 .result code { display: block; font: 400 12px/1.6 var(--mono); background: var(--panel); padding: 12px 14px; border-radius: 6px; overflow-wrap: anywhere; margin: 8px 0 16px; }
 .result ol { padding-left: 18px; font-size: 14px; }
+
+/* V4: UI cilası önce/sonra */
+.ui-polish { margin: 16px 0; }
+.ui-polish .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 12px 0; }
+.ui-polish figure { margin: 0; }
+.ui-polish img { display: block; width: 100%; max-height: 420px; object-fit: cover; object-position: top; border: 1px solid var(--line); border-radius: 8px; }
+.ui-polish figcaption { font-size: 12px; margin-top: 4px; opacity: .75; }

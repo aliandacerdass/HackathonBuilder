@@ -442,6 +442,7 @@ function renderResult(r) {
       el("code", null, `${r.launchers[0]}  (Windows: ${r.launchers[1]})`));
   }
   box.append(el("p", "hint", "Ya da terminalde:"), el("code", null, `cd ${r.project} && ${r.run_command}`));
+  if (r.ui) box.append(renderUi(r.ui));
   if (r.demo_steps.length) {
     box.append(el("h3", "eyebrow", "Jüriye demo"));
     const ol = el("ol");
@@ -454,6 +455,43 @@ function renderResult(r) {
     box.append(det);
   }
   $("#build-result").replaceChildren(box);
+}
+
+const UI_STATUS = {
+  done: "UI cilası yapıldı (ayrı commit: beğenmezsen `git revert` ile geri alınır)",
+  reverted: "UI cilası ürünü bozdu, geri alındı. Ürün cila öncesi haliyle duruyor",
+  failed: "UI cilası yapılamadı. Ürün cila öncesi haliyle duruyor",
+  skipped: "UI cilası daha önce yapılmıştı",
+};
+
+function renderUi(ui) {
+  const sec = el("div", "ui-polish");
+  sec.append(el("h3", "eyebrow", "Arayüz cilası"), el("p", null, UI_STATUS[ui.status] || ui.status));
+  if (ui.summary) sec.append(el("p", "hint", ui.summary));
+  ui.problems.forEach((p) => sec.append(el("p", "error", p)));
+  const has = (n) => ui.shots.includes(n);
+  ["desktop", "mobile"].forEach((v) => {
+    if (!has(`before-${v}.png`)) return;
+    const grid = el("div", "shots");
+    [["before", "Önce"], ["after", "Sonra"]].forEach(([t, label]) => {
+      if (!has(`${t}-${v}.png`)) return;
+      const src = `/api/runs/${runId}/ui/${t}-${v}.png?${Date.now()}`;
+      const fig = el("figure");
+      const a = el("a");
+      a.href = src;
+      a.target = "_blank";
+      a.rel = "noopener";
+      const img = el("img");
+      img.src = src;
+      img.alt = `${label}: ${v === "desktop" ? "masaüstü" : "mobil"}`;
+      img.loading = "lazy";
+      a.append(img);
+      fig.append(a, el("figcaption", "mono", img.alt));
+      grid.append(fig);
+    });
+    sec.append(grid);
+  });
+  return sec;
 }
 
 function endBuild(text, canResume) {
@@ -473,6 +511,7 @@ const buildHandlers = {
   stage({ stage }) {
     if (stage === "build_plan") $("#build-status").textContent = "Plan yazılıyor…";
     else if (stage === "build_setup") $("#build-status").textContent = "Proje klasörü kuruluyor…";
+    else if (stage === "build_ui") $("#build-status").textContent = "Arayüz cilalanıyor…";
     else $("#build-status").textContent = `${stage.replace("build_", "")} kodlanıyor…`;
   },
   plan(d) {
@@ -520,6 +559,11 @@ const buildHandlers = {
       p.append(el("span", `sev ${f.severity}`, f.severity), `${f.file}: ${f.issue}`);
       taskLog(d.id, p);
     });
+  },
+  ui(d) {
+    const msg = { capturing: "Ekran görüntüleri alınıyor…", designing: "UI ajanı arayüzü iyileştiriyor…",
+      checking: "Sonuç kontrol ediliyor (testler, konsol, mobil)…", fixing: "UI sorunları düzeltiliyor…" }[d.status];
+    if (msg) $("#build-status").textContent = msg;
   },
   timing() {},
   error(d) { console.warn(d); },

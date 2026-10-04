@@ -8,6 +8,7 @@ POST /api/runs/{id}/research-decision → seçilen özellikler → research_deci
 POST /api/runs/{id}/build      → V3 kodlamayı başlatır ({resume}), {build_id} döner
 POST /api/runs/{id}/build/approve → bekleyen plan/paket onayına cevap ({ok, note, fix})
 POST /api/runs/{id}/build/stop → kodlamayı durdurur (sonra resume ile devam edilebilir)
+GET  /api/runs/{id}/ui/{ad}.png → V4 UI cilası önce/sonra ekran görüntüleri
 """
 import asyncio
 import json
@@ -226,6 +227,18 @@ async def build_approve(run_id: str, body: ApproveIn):
         raise HTTPException(400, "Onay bekleyen bir şey yok")
     b.pending.set_result({"ok": body.ok, "note": body.note.strip(), "fix": body.fix})
     return {"ok": True}
+
+
+UI_SHOTS = {f"{t}-{v}.png" for t in ("before", "after") for v in ("desktop", "mobile")}
+
+
+@app.get("/api/runs/{run_id}/ui/{name}")
+async def ui_shot(run_id: str, name: str):
+    """UI cilası önce/sonra ekran görüntüleri (sadece sabit isimler: yol geçişi yok)."""
+    live = LIVE.get(run_id)
+    if name not in UI_SHOTS or not live or not live.run_dir or not (live.run_dir / "ui" / name).exists():
+        raise HTTPException(404, "Görüntü yok")
+    return FileResponse(live.run_dir / "ui" / name)
 
 
 @app.post("/api/runs/{run_id}/build/stop")

@@ -4,7 +4,7 @@ Hackathon konusunu gir. Claude, GPT ve Gemini'den oluşan bir konsey fikir üret
 
 **API key gerekmez.** Uygulama modelleri kendi aboneliklerinle, resmi CLI'lar üzerinden çağırır: Claude Code, Codex CLI ve Antigravity (`agy`). Her şey senin bilgisayarında çalışır.
 
-> Durum: **V1** (fikir konseyi), **V2** (araştırma) ve **V3** (kodlama döngüsü) çalışıyor. UI/UX ajanı ve jüri sunumu yol haritasında.
+> Durum: **V1** (fikir konseyi), **V2** (araştırma), **V3** (kodlama döngüsü) ve **V4'ün UI/UX ajanı** çalışıyor. Jüri sunumu yol haritasında.
 
 ## Nasıl çalışır
 
@@ -49,6 +49,7 @@ Fikir + seçili özellikler ──▶ Plan ──▶ 👤 Plan onayı ──▶ 
 - **Kodlayıcı sandbox'ta çalışır:** Kod `codex sandbox` (macOS işletim sistemi sandbox'ı) içinde yazılır. Proje klasörü dışına yazamaz, internete çıkamaz. Varsayılan kodlayıcı Claude (`codex sandbox` Codex kotası harcamaz), `HB_CODER=codex` ile Codex.
 - **Testleri ajan değil uygulama çalıştırır.** Ajanın "testler geçti" demesine güvenilmez.
 - **Güvenlik incelemesi:** Her görevin diff'ini Claude inceler. Hangi bulguların düzeltileceğini plan onayında seçersin: sadece high, high + medium (varsayılan) veya hepsi. Kalanlar raporda görünür.
+- **UI/UX cilası (V4):** Görevler bitince uygulama sandbox'ta açılır, masaüstü ve mobil ekran görüntüsü alınır. UI ajanı görüntülere bakıp sadece `app/static/`'i (HTML/CSS/JS) iyileştirir: ilk izlenim, hiyerarşi, renk paleti, mobil, erişilebilirlik. Sonra testler çalışır ve sayfa yeniden çekilip konsol hataları ve mobilde yatay taşma kodla kontrol edilir. Sorun çıkarsa ajana bir kez düzelttirilir. Test kırılır veya yeni JS hatası çıkarsa cila tamamen geri alınır, yani ürünü bozamaz. Cila ayrı bir commit'tir, sonuçta önce/sonra görüntüleri gösterilir. Ajan sadece ilk açılış ekranını görür.
 - **Tek tıkla açma:** Kodlama bitince projeye `Baslat-Mac.command` (macOS) ve `Baslat-Windows.bat` (Windows) eklenir. Çift tıklayınca uygulama başlar ve tarayıcıda açılır. Başka bir bilgisayarda ilk açılışta Python ortamını kendisi kurar; bunun için `requirements.txt` kodun import ettiği paketlerden çıkarılır. Windows'ta Python kurulu olmalı.
 - **Paketler:** Sandbox'ta internet yok. Onayladığın paketleri uygulama, projenin `.venv`'ine kurar.
 - **Durdur / devam et:** Kota dolarsa veya durdurursan, biten görevler commit'lerden bulunur ve kalanlardan devam edilir.
@@ -72,6 +73,7 @@ Fikir + seçili özellikler ──▶ Plan ──▶ 👤 Plan onayı ──▶ 
 git clone https://github.com/aliandacerdass/HackathonBuilder.git
 cd HackathonBuilder
 pip install -r requirements.txt
+playwright install chromium             # UI cilası için ekran görüntüsü tarayıcısı
 git config core.hooksPath .githooks     # push öncesi sızıntı kontrolünü açar
 ```
 
@@ -142,6 +144,7 @@ Her tur `runs/<tarih>-<konu>/` klasörüne kaydedilir:
 | `build_options.json` | Plan onayındaki güvenlik düzeltme seviyesi ve kurulan paketler (`--resume` bunları kullanır) |
 | `build.json` | Görev sonuçları, son test çıktısı, çalıştırma komutu, demo adımları |
 | `build_timings.json` | Kodlama aşama süreleri |
+| `ui/*.png` | UI cilası önce/sonra ekran görüntüleri (masaüstü + mobil) |
 
 `runs/` git'e gönderilmez, fikirlerin bilgisayarında kalır. Ürünün kodu `~/HackathonBuilderProjects/<tur-klasörü>/` içindedir.
 
@@ -174,14 +177,15 @@ Gemini için kullanılabilir modelleri görmek için: `agy models`
 | `PROJECT_MEMORY.md` | Kararlar, mimari, **kaldığımız yer** |
 | `tasks.md` | Fazlara göre yapılacaklar |
 | `COMMON_ERRORS.md` | Bilinen hatalar ve kontrol listesi |
-| `skills/*.md` | Ajan rolleri (netleştirici, konsey üyesi, jüri, sorgu yazıcı, web araştırmacı, repo inceleyici, sayı ve özellik çıkarıcı, planlayıcı, kodlayıcı, güvenlik inceleyici) |
+| `skills/*.md` | Ajan rolleri (netleştirici, konsey üyesi, jüri, sorgu yazıcı, web araştırmacı, repo inceleyici, sayı ve özellik çıkarıcı, planlayıcı, kodlayıcı, güvenlik inceleyici, UI tasarımcısı) |
 
 ## Yol haritası
 
 - [x] **V1:** Fikir konseyi (netleştirme → 2 turlu konsey → jüri → karar)
 - [x] **V2:** Araştırma ajanları (makale, sayısal veri, özellik, GitHub, web/YouTube)
 - [x] **V3:** Kodlama döngüsü (kod → güvenlik → test → hata raporu, kullanıcı onay noktalarıyla)
-- [ ] **V4:** UI/UX iyileştirme ve jüri sunumu
+- [x] **V4a:** UI/UX iyileştirme ajanı (ekran görüntüsüyle)
+- [ ] **V4b:** Jüri sunumu
 
 ## Lisans
 
