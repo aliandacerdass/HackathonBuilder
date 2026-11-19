@@ -38,6 +38,7 @@ Seçtiğin fikir ──▶ Arama sorguları ──▶ Makaleler (OpenAlex)      
 
 - **Uydurma kaynak üretilemez:** Makale ve repolar resmi API'lerden gelir. LLM sadece sorgu yazar, seçer ve analiz eder.
 - **Her link kodla doğrulanır:** ✓ doğrulandı, ? site erişimi engelledi, ✗ ulaşılamadı (listeden çıkarılır).
+- **Alaka kodla korunur:** Makaleler her sorgunun en alakalı sonuçlarından sırayla seçilir, aynı sırada yenisi önce gelir (atıf sayısına göre sıralamak eski genel derlemeleri öne çıkarıyordu). 3'ten az repo bulunursa sorgular kısaltılıp yeniden aranır. Bir videonun gerçek başlığı (YouTube oEmbed) konuyla hiç kelime paylaşmıyorsa video atılır; modelin yazdığı başlığa bakılmaz.
 - **Kaynak filtresi:** Bir sayı veya özellik, toplanan listede olmayan bir linke dayanıyorsa kodla atılır.
 - **Gemini sadece analiz yapar**, web'e çıkmaz. Web araması Claude ve GPT'de.
 - Bir araştırma turu genelde **1.5-2.5 dakika** sürer. Web araması Claude kotasını normal çağrılardan hızlı harcar.

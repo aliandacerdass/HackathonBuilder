@@ -6,6 +6,7 @@ Terminalden:
 """
 import argparse
 import asyncio
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -15,6 +16,15 @@ from .schemas import Features, Queries, RepoReview, Stats, WebFindings
 
 ANALYSTS = ["gemini", "gpt", "claude"]  # analiz: Gemini önce (web'siz rol)
 MAX_PAPERS, MAX_REPOS = 8, 6
+MIN_REPOS = 3  # daha azı gelirse repo sorguları genişletilir
+GITHUB_SEARCHES = 10  # GitHub key'siz arama limiti: dakikada 10
+STOP = {"with", "from", "that", "this", "using", "video", "videos", "tutorial", "demo", "what", "your",
+        "into", "about", "part", "için", "nasıl", "nedir"}  # alaka kontrolünde sayılmayan genel kelimeler
+
+
+def words(text: str) -> set[str]:
+    """Alaka kontrolü için anlamlı kelimeler: 4+ harf, genel kelimeler hariç."""
+    return {w for w in re.findall(r"\w+", text.lower()) if len(w) >= 4 and w not in STOP}
 
 
 def norm(url: str) -> str:
@@ -51,7 +61,9 @@ async def run_research(run_dir: Path, emit) -> dict:
 
         # 3) Doğrulama (kod): web/video linkleri gerçekten var mı
         run.begin("research_verify")
-        sources = await verify(run, web + videos)
+        topic = words(" ".join([*q.paper_queries, *q.repo_queries, *q.web_queries, *q.video_queries,
+                                ctx["idea"]["title"], *ctx["brief"].get("keywords", [])]))
+        sources = await verify(run, web + videos, topic)
 
         # 4) Analiz (LLM, web'siz): sadece toplanan kaynaklardan
         run.begin("research_analyze")
@@ -110,33 +122,59 @@ async def collect_papers(run: Run, queries: list[str]) -> list[dict]:
     since = datetime.now().year - 3
     results = await asyncio.gather(*(tools.search_papers(q, since, 4) for q in queries),
                                    return_exceptions=True)
-    seen, papers = set(), []
+    lists = []
     for q, r in zip(queries, results):
         if isinstance(r, Exception):
             run.emit("error", {"stage": "research_collect", "model": "openalex", "error": f"{q}: {r}"})
-            continue
-        for p in r:
+        else:
+            lists.append(r)
+    # OpenAlex her sorgunun sonucunu alakaya göre sıralı verir. Her sorgudan sırayla en alakalısı alınır,
+    # aynı sırada yenisi önce (atıfa göre sıralamak eski, genel derlemeleri öne çıkarıyordu).
+    seen, papers = set(), []
+    for i in range(max(map(len, lists), default=0)):
+        for p in sorted((l[i] for l in lists if i < len(l)), key=lambda p: p["year"] or 0, reverse=True):
             if norm(p["url"]) not in seen:
                 seen.add(norm(p["url"]))
                 papers.append(p)
-    papers = sorted(papers, key=lambda p: p["citations"], reverse=True)[:MAX_PAPERS]
+    papers = papers[:MAX_PAPERS]
     for p in papers:
         run.emit("source", {"kind": "paper", "status": "verified", **p})
     return papers
 
 
-async def collect_repos(run: Run, ctx: dict, queries: list[str]) -> list[dict]:
-    results = await asyncio.gather(*(tools.search_repos(q, 4) for q in queries), return_exceptions=True)
-    seen, repos = set(), []
+def broaden(query: str) -> str | None:
+    """Az sonuç veren repo sorgusu: son kelime atılır (GitHub kelimelerin hepsini birlikte arar).
+    2 kelimeden kısaltılmaz: tek kelime alakasız popüler repolar getirir."""
+    parts = query.split()
+    return " ".join(parts[:-1]) if len(parts) >= 3 else None
+
+
+async def find_repos(run: Run, queries: list[str], seen: set[str], by_stars: bool = True) -> list[dict]:
+    results = await asyncio.gather(*(tools.search_repos(q, 4, by_stars) for q in queries), return_exceptions=True)
+    lists = []
     for q, r in zip(queries, results):
         if isinstance(r, Exception):
             run.emit("error", {"stage": "research_collect", "model": "github", "error": f"{q}: {r}"})
-            continue
-        for repo in r:
+        else:
+            lists.append(r)
+    repos = []  # her sorgudan sırayla en iyisi: sınıra takılınca tek sorgu listeyi doldurmasın
+    for i in range(max(map(len, lists), default=0)):
+        for repo in (l[i] for l in lists if i < len(l)):
             if repo["name"] not in seen:
                 seen.add(repo["name"])
                 repos.append(repo)
-    repos = sorted(repos, key=lambda r: r["stars"], reverse=True)[:MAX_REPOS]
+    return repos
+
+
+async def collect_repos(run: Run, ctx: dict, queries: list[str]) -> list[dict]:
+    seen: set[str] = set()
+    repos = sorted(await find_repos(run, queries, seen), key=lambda r: r["stars"], reverse=True)
+    if len(repos) < MIN_REPOS:
+        broader = list(dict.fromkeys(b for q in queries if (b := broaden(q))))
+        broader = broader[:max(0, GITHUB_SEARCHES - len(queries))]
+        # ek sonuçlar en iyi eşleşme sırasıyla, ilk aramanın ARKASINA (yıldıza göre sıralansa popüler alakasızlar öne geçerdi)
+        repos += await find_repos(run, broader, seen, by_stars=False)
+    repos = repos[:MAX_REPOS]
     if not repos:
         return []
 
@@ -168,18 +206,32 @@ async def web_search(run: Run, ctx: dict, model: str, queries: list[str], task: 
     return [{**s.model_dump(), "found_by": model} for s in r.sources]
 
 
-async def verify(run: Run, sources: list[dict]) -> list[dict]:
+async def check(s: dict, topic: set[str]) -> str:
+    """Link durumu. YouTube videosu varsa bir de alaka: GERÇEK başlığı (oEmbed) konuyla hiç kelime
+    paylaşmıyorsa off_topic. Modelin yazdığı başlık ölçülmez (çevrilmiş ya da uydurulmuş olabilir)."""
+    if not tools.YT_RE.search(s["url"]):
+        return await tools.check_url(s["url"])
+    try:
+        title = await tools.youtube_title(s["url"])
+    except tools.ToolError:
+        return "unverified"
+    if title is None:
+        return "dead"
+    return "verified" if words(title) & topic else "off_topic"
+
+
+async def verify(run: Run, sources: list[dict], topic: set[str]) -> list[dict]:
     seen, unique = set(), []
     for s in sources:
         if norm(s["url"]) not in seen:
             seen.add(norm(s["url"]))
             unique.append(s)
-    statuses = await asyncio.gather(*(tools.check_url(s["url"]) for s in unique))
+    statuses = await asyncio.gather(*(check(s, topic) for s in unique))
     kept = []
     for s, st in zip(unique, statuses):
         s["status"] = st
         run.emit("source", s)
-        if st != "dead":
+        if st not in ("dead", "off_topic"):
             kept.append(s)
     return kept
 
@@ -194,7 +246,7 @@ def print_event(event: str, d: dict):
     elif event == "timing":
         print(f"  ⏱ {d['model']:<7} {d['seconds']:6.1f}s {'' if d['ok'] else '✗'}")
     elif event == "source" and d["kind"] != "paper":
-        mark = {"verified": "✓", "unverified": "?", "dead": "✗"}[d["status"]]
+        mark = {"verified": "✓", "unverified": "?", "dead": "✗", "off_topic": "≠"}[d["status"]]
         print(f"  {mark} [{d['found_by']}] {d['url'][:90]}")
     elif event == "error":
         print(f"  ✗ {d['stage']} / {d['model']}: {d['error'][:200]}")

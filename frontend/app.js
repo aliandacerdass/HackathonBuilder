@@ -276,7 +276,7 @@ function addSource(kind, title, url, status, meta) {
 const researchHandlers = {
   stage({ stage }) { $("#research-status").textContent = R_STATUS[stage] || ""; },
   source(d) {
-    if (d.status === "dead") return;  // ölü linkler listelenmez
+    if (d.status === "dead" || d.status === "off_topic") return;  // ölü ve konu dışı linkler listelenmez
     const kind = d.kind === "paper" ? "makale" : d.kind === "video" ? "video" : "web";
     const meta = d.kind === "paper" ? `${d.year} · ${d.citations} atıf` : d.finding;
     addSource(kind, d.title, d.url, d.status, meta);

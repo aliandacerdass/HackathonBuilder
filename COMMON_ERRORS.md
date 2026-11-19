@@ -24,6 +24,8 @@
 | `codex sandbox claude` durdurulunca claude yetim kalır | Üst süreç öldü, claude PPID=1 ile çalışıp kota yemeye devam etti | `start_new_session=True` + `kill_tree()` (os.killpg); timeout ve iptal ikisinde de |
 | Sandbox'ta sunucu port açamıyor | `[Errno 1] error while attempting to bind ... operation not permitted` | `codex sandbox` ağ kapalıyken localhost'a bile bind yok → `sandbox_workspace_write.network_access=true` (yazma yine proje içiyle sınırlı) |
 | agy uzun işte timeout | Yarım çıktı | Tek çağrıya tek iş, `--print-timeout` ver |
+| GitHub arama 403 | `search/repositories` 403, `/rate_limit` ise 10/10 gösteriyor | Key'siz arama limiti DAKİKADA 10 (saatte 60 değil). `/rate_limit` eski değer gösterebilir; gerçek kalan `x-ratelimit-remaining` başlığında. Araştırma toplam ≤10 arama yapar; testleri arka arkaya koşma |
+| Genişletilmiş arama alakasız popüler repo getirdi | `in:readme` + yıldız sırası → `public-apis` (500k★) | Genişletmede README arama yok, `sort` yok (en iyi eşleşme), ek sonuçlar ilk aramanın ARKASINA eklenir |
 
 ## Her Değişiklik Sonrası Kontrol Listesi
 - [ ] Kodda key/token/şifre/kişisel yol yok

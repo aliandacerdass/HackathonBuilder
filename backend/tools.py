@@ -3,6 +3,7 @@
     papers = await search_papers("medication reconciliation AI", since_year=2024)
     repos  = await search_repos("drug interaction checker")
     readme = await repo_readme("owner/name")
+    title  = await youtube_title("https://www.youtube.com/watch?v=...")   # gerçek başlık | None
     status = await check_url("https://...")   # "verified" | "unverified" | "dead"
 """
 import asyncio
@@ -66,13 +67,14 @@ async def search_papers(query: str, since_year: int = 2023, n: int = 5) -> list[
     } for w in data["results"] if w.get("title") and w.get("doi")]
 
 
-# ---------- repolar: GitHub (key'siz: saatte 60 istek) ----------
+# ---------- repolar: GitHub (key'siz: dakikada 10 arama, saatte 60 diğer istek) ----------
 
-async def search_repos(query: str, n: int = 5) -> list[dict]:
-    params = urllib.parse.urlencode({"q": query, "sort": "stars", "per_page": n})
+async def search_repos(query: str, n: int = 5, by_stars: bool = True) -> list[dict]:
+    """by_stars=False: GitHub'ın en iyi eşleşme sırası."""
+    params = urllib.parse.urlencode({"q": query, "per_page": n, **({"sort": "stars"} if by_stars else {})})
     code, body = await asyncio.to_thread(_get, f"https://api.github.com/search/repositories?{params}")
     if code == 403:
-        raise ToolError("GitHub istek limiti doldu (saatte 60), biraz sonra tekrar dene")
+        raise ToolError("GitHub arama limiti doldu (key'siz dakikada 10 arama), bir dakika sonra tekrar dene")
     if code != 200:
         raise ToolError(f"GitHub arama: HTTP {code}")
     return [{
@@ -95,6 +97,13 @@ async def repo_readme(full_name: str, limit: int = 3000) -> str:
 
 # ---------- link doğrulama ----------
 
+async def youtube_title(url: str) -> str | None:
+    """YouTube videosunun gerçek başlığı (oEmbed). Video yoksa None."""
+    q = urllib.parse.quote(url, safe="")
+    code, body = await asyncio.to_thread(_get, f"https://www.youtube.com/oembed?url={q}&format=json")
+    return json.loads(body).get("title", "") if code == 200 else None
+
+
 DOI_RE = re.compile(r"10\.\d{4,9}/[^\s?#]+")
 PMC_RE = re.compile(r"ncbi\.nlm\.nih\.gov/(?:pmc/)?articles/PMC(\d+)")
 YT_RE = re.compile(r"(youtube\.com/watch|youtu\.be/)")
@@ -104,9 +113,7 @@ async def check_url(url: str) -> str:
     """verified = var olduğu kanıtlandı · dead = yok (404 vb.) · unverified = site engelledi (403 vb.)"""
     try:
         if YT_RE.search(url):
-            q = urllib.parse.quote(url, safe="")
-            code, _ = await asyncio.to_thread(_get, f"https://www.youtube.com/oembed?url={q}&format=json")
-            return "verified" if code == 200 else "dead"
+            return "verified" if await youtube_title(url) is not None else "dead"
 
         if m := PMC_RE.search(url):
             data = await _get_json(
