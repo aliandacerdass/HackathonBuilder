@@ -11,7 +11,7 @@
 </head>
 <body>
   <header class="top">
-    <span class="brand">HackathonBuilder</span>
+    <a class="brand" href="/">HackathonBuilder</a>
     <ol class="rail" id="rail" aria-label="Aşamalar">
       <li data-stage="input">Konu</li>
       <li data-stage="refine">Netleştirme</li>
@@ -48,7 +48,13 @@
       <p class="error" id="intake-error" role="alert" hidden></p>
     </form>
 
+    <section class="past" id="past" hidden>
+      <h2 class="eyebrow">Geçmiş turlar</h2>
+      <ul id="past-list"></ul>
+    </section>
+
     <section class="work" id="work" hidden>
+      <p class="replay mono" id="replay" hidden></p>
       <section class="brief" id="brief" aria-live="polite">
         <p class="eyebrow">Netleştirilmiş konu <span class="by mono" id="brief-by"></span></p>
         <p class="brief-topic" id="brief-topic">Konu netleştiriliyor…</p>

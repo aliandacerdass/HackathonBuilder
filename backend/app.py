@@ -9,6 +9,8 @@ POST /api/runs/{id}/build      → V3 kodlamayı başlatır ({resume}), {build_i
 POST /api/runs/{id}/build/approve → bekleyen plan/paket onayına cevap ({ok, note, fix})
 POST /api/runs/{id}/build/stop → kodlamayı durdurur (sonra resume ile devam edilebilir)
 GET  /api/runs/{id}/ui/{ad}.png → V4 UI cilası önce/sonra ekran görüntüleri (ilk ekran + demo adımları)
+GET  /api/history              → kayıtlı turlar (en yeni üstte)
+GET  /api/history/{ad}         → kayıtlı turu salt okunur açar: {run_id, research, build}, olaylar aynı /events ile
 """
 import asyncio
 import json
@@ -25,6 +27,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .builder import resumable, run_build
+from .history import build_events, council_events, list_runs, research_events, run_dir
 from .pipeline import RUNS, RunnerError, run_pipeline, save_decision
 from .research import run_research
 
@@ -76,6 +79,7 @@ class Live:
 
 
 LIVE: dict[str, Live] = {}
+PAST: dict[str, Live] = {}  # kayıtlı turlar: sadece /events ve /ui okur (karar, araştırma, kodlama uçları görmez)
 
 
 class RunIn(BaseModel):
@@ -144,7 +148,7 @@ def start_job(live: Live, coro):
 
 @app.get("/api/runs/{run_id}/events")
 async def events(run_id: str, request: Request):
-    live = LIVE.get(run_id)
+    live = LIVE.get(run_id) or PAST.get(run_id)
     if not live:
         raise HTTPException(404, "Böyle bir çalıştırma yok")
     start_at = int(request.headers.get("last-event-id", -1)) + 1
@@ -236,10 +240,38 @@ UI_SHOT = re.compile(r"(before|after)-(desktop|mobile)(-[1-3])?\.png")
 @app.get("/api/runs/{run_id}/ui/{name}")
 async def ui_shot(run_id: str, name: str):
     """UI cilası önce/sonra ekran görüntüleri (sadece sabit isim kalıbı: yol geçişi yok)."""
-    live = LIVE.get(run_id)
+    live = LIVE.get(run_id) or PAST.get(run_id)
     if not UI_SHOT.fullmatch(name) or not live or not live.run_dir or not (live.run_dir / "ui" / name).exists():
         raise HTTPException(404, "Görüntü yok")
     return FileResponse(live.run_dir / "ui" / name)
+
+
+@app.get("/api/history")
+async def history():
+    return list_runs()
+
+
+def replayed(events: list) -> Live:
+    live = Live()
+    for event, data in events:
+        live.emit(event, data)
+    live.finished = True
+    return live
+
+
+@app.get("/api/history/{name}")
+async def open_past(name: str):
+    d = run_dir(name)
+    if not d:
+        raise HTTPException(404, "Böyle bir tur yok")
+    rid = f"h-{name}"
+    PAST[rid] = replayed(council_events(d))
+    research, build = research_events(d), build_events(d)
+    if research:
+        PAST[f"{rid}-r"] = replayed(research)
+    if build:
+        PAST[f"{rid}-b"] = replayed(build)
+    return {"run_id": rid, "research": bool(research), "build": bool(build)}
 
 
 @app.post("/api/runs/{run_id}/build/stop")

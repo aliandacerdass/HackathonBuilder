@@ -109,6 +109,8 @@ Kararı kaydettikten sonra **Bu fikir için araştırma yap**'a bas. Araştırma
 
 Sonra **Kodlamaya başla**'ya bas. Planı onaylarken hangi güvenlik bulgularının düzeltileceğini seç, sonra kurulacak paketleri onayla (reddedersen not yazarak planı bir kez yeniden yazdırabilirsin). Görevler canlı akar, **Durdur** ile kesebilir, **Kaldığı yerden devam et** ile sürdürebilirsin. Bitince ürünün nasıl çalıştırılacağı ve test/güvenlik raporu gösterilir.
 
+**Geçmiş turlar:** Ana sayfadaki **Geçmiş turlar** listesinde bitmiş her tur durur. Birine tıklayınca fikirler, jüri puanları, kaynaklar, görevler ve UI cilası önce/sonra görüntüleri kayıttan anında açılır. Model çağrılmaz, kota harcanmaz. Kayıtlı tur salt okunurdur: karar ve seçimler değiştirilemez.
+
 **Terminalde:**
 
 ```bash

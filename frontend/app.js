@@ -111,10 +111,20 @@ const handlers = {
     $("#judge-by").textContent = `Jüri: ${NAMES[d.judge]}, ${Math.round(seconds[`judge:${d.judge}`] || 0)}s.`;
   },
 
+  decision({ idea_id }) {  // sadece kayıtlı turlarda: karar değişmez
+    document.querySelectorAll(".score .pick").forEach((p) => p.remove());
+    const row = idea_id && document.querySelector(`.score[data-id="${CSS.escape(idea_id)}"]`);
+    if (!row) return;
+    row.classList.add("chosen");
+    row.querySelector("details").after(el("p", "saved", "Bu fikir seçildi"));
+  },
+
   done(d) {
-    $("#timings").textContent = "Süre: " + Object.entries(d.stages)
-      .map(([k, v]) => `${STAGE_NAMES[k]} ${Math.round(v)}s`).join(" · ") + ` · toplam ${Math.round(d.total)}s`;
-    setStage("decision");
+    if (d.total != null) {  // ilk kayıtlı turlarda süre ölçümü yok
+      $("#timings").textContent = "Süre: " + Object.entries(d.stages)
+        .map(([k, v]) => `${STAGE_NAMES[k]} ${Math.round(v)}s`).join(" · ") + ` · toplam ${Math.round(d.total)}s`;
+    }
+    setStage(pastStage || "decision");
     stopClock();
     source.close();
   },
@@ -279,6 +289,12 @@ const researchHandlers = {
   research(d) {
     renderStats(d.stats);
     renderFeatures(d.features);
+  },
+  research_decision({ features }) {  // sadece kayıtlı turlarda: seçim değişmez
+    const form = $("#features");
+    form.querySelectorAll("input[type=checkbox]").forEach((c) => { c.checked = features.includes(c.value); c.disabled = true; });
+    form.querySelectorAll(":scope > input, :scope > button").forEach((n) => n.remove());
+    form.append(el("p", "saved", features.length ? `${features.length} özellik seçildi` : "Özellik seçilmedi"));
   },
   error(d) { console.warn(d); },
   timing() {},
@@ -608,6 +624,56 @@ $("#build-stop").addEventListener("click", async (e) => {
   e.target.disabled = false;
 });
 
+// ---------- kayıtlı turlar (salt okunur) ----------
+let pastStage = null;  // kayıtlı turda rayın son aşaması
+const when = (iso) => new Date(iso).toLocaleString("tr-TR",
+  { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+
+function listen(id, fns) {
+  const src = new EventSource(`/api/runs/${id}/events`);
+  for (const [name, fn] of Object.entries(fns)) src.addEventListener(name, (ev) => fn(JSON.parse(ev.data)));
+  return src;
+}
+
+async function loadHistory() {
+  const res = await fetch("/api/history");
+  const runs = res.ok ? await res.json() : [];
+  if (!runs.length) return;
+  $("#past-list").replaceChildren(...runs.map((r) => {
+    const btn = el("button", "past-run");
+    btn.type = "button";
+    const phases = el("span", "phases mono");
+    [["Konsey", true], ["Araştırma", r.research], [r.build ? `Kodlama ${r.build}` : "Kodlama", !!r.build]]
+      .forEach(([t, on]) => phases.append(el("span", on ? "on" : null, t)));
+    btn.append(el("span", "when mono", when(r.created)), phases, el("span", "title", r.chosen || r.topic),
+      el("span", "sub", r.chosen ? `${r.topic} · ${r.hours} saat` : `${r.hours} saat · fikir seçilmedi`));
+    btn.addEventListener("click", () => openPast(r, btn));
+    const li = el("li");
+    li.append(btn);
+    return li;
+  }));
+  $("#past").hidden = false;
+}
+
+async function openPast(r, btn) {
+  btn.disabled = true;
+  const res = await fetch(`/api/history/${encodeURIComponent(r.name)}`);
+  const data = await res.json();
+  if (!res.ok) { btn.disabled = false; btn.append(el("span", "error", data.detail)); return; }
+  runId = data.run_id;
+  pastStage = data.build ? "build" : data.research ? "research" : "decision";
+  $("#intake").hidden = $("#past").hidden = true;
+  $("#work").hidden = false;
+  const back = el("a", null, "Yeni tur başlat");
+  back.href = "/";
+  $("#replay").replaceChildren(`Kayıtlı tur · ${when(r.created)} · salt okunur · `, back);
+  $("#replay").hidden = false;
+  window.scrollTo(0, 0);
+  source = listen(runId, handlers);
+  if (data.research) { $("#research").hidden = false; rSource = listen(`${runId}-r`, researchHandlers); }
+  if (data.build) { $("#build").hidden = false; bSource = listen(`${runId}-b`, buildHandlers); }
+}
+
 // ---------- başlat ----------
 $("#intake").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -643,6 +709,7 @@ $("#intake").addEventListener("submit", async (e) => {
 });
 
 setStage("input");
+loadHistory();
 
 $("#topic").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#intake").requestSubmit(); }
