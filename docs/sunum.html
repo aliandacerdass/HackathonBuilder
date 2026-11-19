@@ -1,0 +1,297 @@
+<!doctype html>
+<!-- HackathonBuilder sunumu. Kaynak dosya: PDF'i (docs/sunum.pdf) bu dosyadan üretilir.
+     Her .slide sabit 1920x1080 bir PDF sayfasıdır. Renk ve yazı tipleri uygulamanın kendisiyle aynı. -->
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<title>HackathonBuilder — Sunum</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gloock&family=Martian+Mono:wght@400;500&family=Onest:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #0E1626; --panel: #152038; --line: #2A3858;
+    --cream: #EDE6D6; --muted: #98A2B8; --soft: #C9CDD8;
+    --claude: #E3A65B; --gpt: #6CC3A6; --gemini: #97A9F2; --danger: #E8806F;
+    --display: "Gloock", Georgia, serif;
+    --body: "Onest", system-ui, sans-serif;
+    --mono: "Martian Mono", ui-monospace, monospace;
+  }
+  @page { size: 1920px 1080px; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--ink); color: var(--cream); font: 400 30px/1.45 var(--body); }
+
+  .slide {
+    width: 1920px; height: 1080px; overflow: hidden; position: relative;
+    padding: 72px 120px 80px; display: flex; flex-direction: column;
+    break-after: page; background: var(--ink);
+  }
+  .slide:last-child { break-after: auto; }
+
+  /* üst satır: sayfa etiketi + aşama rayı (uygulamadaki rayın aynısı: slayt hangi aşamayı anlatıyor) */
+  .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 56px; }
+  .label { font: 500 18px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .rail { display: flex; gap: 10px; list-style: none; margin: 0; padding: 0; font: 400 18px var(--mono); color: var(--muted); }
+  .rail li { padding: 6px 16px; border: 1px solid var(--line); border-radius: 99px; }
+  .rail li.on { color: var(--ink); background: var(--cream); border-color: var(--cream); }
+
+  h1 { font: 400 76px/1.08 var(--display); margin: 0 0 40px; max-width: 1500px; }
+  p { margin: 0; }
+  .lead { font-size: 34px; color: var(--soft); max-width: 1400px; }
+  ul.points { list-style: none; padding: 0; margin: 0; display: grid; gap: 22px; }
+  ul.points li { padding-left: 34px; position: relative; color: var(--soft); }
+  ul.points li::before { content: ""; position: absolute; left: 0; top: .62em; width: 14px; height: 2px; background: var(--muted); }
+  ul.points b { color: var(--cream); font-weight: 600; }
+  .mono { font-family: var(--mono); }
+  .foot { margin-top: auto; font: 400 18px var(--mono); color: var(--muted); display: flex; justify-content: space-between; }
+
+  /* metin + ekran görüntüsü */
+  .split { display: grid; grid-template-columns: 760px 1fr; gap: 72px; flex: 1; min-height: 0; }
+  .split h1 { font-size: 64px; }
+  .shot { margin: 0; min-height: 0; display: flex; flex-direction: column; }
+  .shot img { width: 100%; flex: 1; min-height: 0; object-fit: cover; object-position: top left;
+              border: 1px solid var(--line); border-radius: 14px; }
+  .shot img.crop { object-fit: none; }
+  .shot figcaption { font: 400 17px var(--mono); color: var(--muted); margin-top: 14px; }
+  .note { margin-top: 36px; padding-top: 24px; border-top: 1px solid var(--line); font-size: 26px; color: var(--soft); }
+  .note b { color: var(--gpt); font-weight: 600; }
+
+  /* 1: kapak */
+  .cover { justify-content: center; }
+  .cover h1 { font-size: 168px; line-height: 1; margin-bottom: 36px; }
+  .cover .lead { font-size: 44px; color: var(--cream); max-width: 1300px; }
+  .models { display: flex; gap: 40px; margin-top: 64px; font: 500 22px var(--mono); }
+  .models span { display: flex; align-items: center; gap: 12px; }
+  .models i { width: 14px; height: 14px; border-radius: 50%; }
+
+  /* 2: problem */
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 72px; margin-top: 8px; }
+  .two h2 { font: 500 20px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0 0 20px; }
+  .two .big { font: 400 46px/1.2 var(--display); }
+  .claim { margin-top: auto; font: 400 52px/1.15 var(--display); max-width: 1500px; }
+  .claim em { font-style: normal; color: var(--gpt); }
+
+  /* 3: boru hattı */
+  .flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin-top: 16px; }
+  .stage { position: relative; padding: 40px 40px 44px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); margin-right: 64px; }
+  .stage:last-child { margin-right: 0; }
+  .stage .n { font: 500 18px var(--mono); color: var(--muted); }
+  .stage h3 { font: 400 54px/1.1 var(--display); margin: 14px 0 22px; }
+  .stage p { font-size: 29px; line-height: 1.4; color: var(--soft); }
+  .stage .t { margin-top: 20px; font: 400 18px var(--mono); color: var(--muted); }
+  .gate { position: absolute; right: -64px; top: 50%; width: 64px; transform: translateY(-50%); text-align: center; font-size: 30px; }
+  .gates { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; margin-top: 72px; }
+  .gates p { font-size: 29px; color: var(--soft); border-left: 3px solid var(--cream); padding-left: 20px; }
+  .gates b { color: var(--cream); font-weight: 600; }
+
+  /* 4: model renkleri */
+  .who { font-weight: 600; }
+  .who.claude { color: var(--claude); } .who.gpt { color: var(--gpt); } .who.gemini { color: var(--gemini); }
+
+  .roomy ul.points { font-size: 36px; gap: 30px; }
+  .roomy .two h2 { margin-bottom: 28px; }
+
+  /* 7: önce / sonra */
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; flex: 1; min-height: 0; margin-top: 8px; }
+
+  /* 8: sonuç sayıları */
+  .nums { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin: 8px 0 48px; }
+  .num { padding: 40px 40px 44px 0; }
+  .num + .num { padding-left: 40px; border-left: 1px solid var(--line); }
+  .num strong { display: block; font: 400 112px/1 var(--display); }
+  .num span { display: block; margin-top: 18px; font-size: 26px; color: var(--soft); }
+  .num small { display: block; margin-top: 8px; font: 400 18px var(--mono); color: var(--muted); }
+  .chosen { font: 400 40px/1.25 var(--display); }
+  .chosen small { display: block; font: 400 18px var(--mono); color: var(--muted); margin-bottom: 12px; }
+
+  /* 10: kapanış */
+  code.block { display: block; font: 400 30px/1.7 var(--mono); background: var(--panel); border: 1px solid var(--line);
+               border-radius: 14px; padding: 32px 40px; margin: 8px 0 40px; color: var(--cream); white-space: pre; }
+  code.block .c { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<!-- 1 · Kapak -->
+<section class="slide cover">
+  <p class="label" style="margin:auto 0 40px">Yerel çoklu ajan uygulaması</p>
+  <h1>HackathonBuilder</h1>
+  <p class="lead">Hackathon konusundan çalışan ürüne tek bir boru hattı. Üç yapay zekâ modeli işi yapar, kararları sen verirsin.</p>
+  <div class="models">
+    <span><i style="background:var(--claude)"></i>Claude</span>
+    <span><i style="background:var(--gpt)"></i>GPT</span>
+    <span><i style="background:var(--gemini)"></i>Gemini</span>
+  </div>
+  <div class="foot" style="margin-top:auto"><span>Ali Andaç Erdaş · Kasım 2026</span><span>github.com/aliandacerdass/HackathonBuilder</span></div>
+</section>
+
+<!-- 2 · Problem -->
+<section class="slide">
+  <div class="top"><span class="label">Problem</span><span class="label">02 / 10</span></div>
+  <h1>Hackathonda iki engel var: zaman ve hata.</h1>
+  <div class="two">
+    <div>
+      <h2>Zaman</h2>
+      <p class="big">Fikir, araştırma, kod ve sunum 24 saate sıkışır.</p>
+    </div>
+    <div>
+      <h2>Hata</h2>
+      <ul class="points">
+        <li>Ajanlar olmayan kaynak uydurur.</li>
+        <li>Abartılı iddialar kurar.</li>
+        <li>Kırık kod yazar, "testler geçti" der.</li>
+        <li>Güvenlik açığı bırakır.</li>
+      </ul>
+    </div>
+  </div>
+  <p class="claim">Bu yüzden ürünün özü kod üreten ajanlar değil, <em>onların hatalarını yakalayan katman.</em></p>
+</section>
+
+<!-- 3 · Boru hattı -->
+<section class="slide">
+  <div class="top"><span class="label">Nasıl çalışır</span><span class="label">03 / 10</span></div>
+  <h1>Dört aşama, üç karar noktası</h1>
+  <div class="flow">
+    <div class="stage"><span class="n">01</span><h3>Konsey</h3><p>Üç model fikir üretir ve birbirini eleştirir, jüri puanlar.</p><p class="t">gerçek turda 105 sn</p><span class="gate">👤</span></div>
+    <div class="stage"><span class="n">02</span><h3>Araştırma</h3><p>Makale, repo, web ve video toplanır, her link doğrulanır.</p><p class="t">133 sn</p><span class="gate">👤</span></div>
+    <div class="stage"><span class="n">03</span><h3>Kodlama</h3><p>Görev görev kod, test ve güvenlik incelemesi.</p><p class="t">29 dk</p><span class="gate">👤</span></div>
+    <div class="stage"><span class="n">04</span><h3>Cila</h3><p>Arayüz ekran görüntüsüne bakılarak iyileştirilir.</p><p class="t">~2 dk</p></div>
+  </div>
+  <div class="gates">
+    <p><b>Fikri sen seçersin.</b> Jüri sıralar, karar senin.</p>
+    <p><b>Özellikleri sen seçersin.</b> Her biri bir kaynağa dayanır.</p>
+    <p><b>Planı ve paketleri sen onaylarsın.</b> Kodlama ondan sonra başlar.</p>
+  </div>
+  <div class="foot"><span>API key yok: modeller kendi aboneliğinle, resmi CLI'larla, senin bilgisayarında çalışır.</span></div>
+</section>
+
+<!-- 4 · Konsey -->
+<section class="slide">
+  <div class="top">
+    <ol class="rail"><li class="on">Konsey</li><li>Araştırma</li><li>Kodlama</li><li>Cila</li></ol>
+    <span class="label">04 / 10</span>
+  </div>
+  <div class="split">
+    <div>
+      <h1>Üç model tartışır, jüri kör puanlar</h1>
+      <ul class="points">
+        <li><b>Tur I:</b> <span class="who claude">Claude</span>, <span class="who gpt">GPT</span> ve <span class="who gemini">Gemini</span> birbirini görmeden fikir yazar. Birbirlerini etkilemezler.</li>
+        <li><b>Tur II:</b> herkes ötekilerin fikrini eleştirir ve geliştirilmiş bir fikir önerir.</li>
+        <li><b>Jüri</b> fikirleri yazarını bilmeden puanlar. Toplamı model değil, kod hesaplar.</li>
+        <li>Bir model düşerse tur kalanlarla sürer.</li>
+      </ul>
+    </div>
+    <figure class="shot"><img src="img/juri.png" alt="Jüri puanları ekranı"><figcaption>Jüri puanları: beş kriter, ağırlıklı toplam</figcaption></figure>
+  </div>
+</section>
+
+<!-- 5 · Araştırma -->
+<section class="slide">
+  <div class="top">
+    <ol class="rail"><li>Konsey</li><li class="on">Araştırma</li><li>Kodlama</li><li>Cila</li></ol>
+    <span class="label">05 / 10</span>
+  </div>
+  <div class="split">
+    <div>
+      <h1>Uydurma kaynak üretilemez</h1>
+      <ul class="points">
+        <li>Makale ve repolar <b>resmi API'lerden</b> gelir (OpenAlex, GitHub). Model sadece sorgu yazar ve seçer.</li>
+        <li>Her link <b>kodla doğrulanır</b>: ✓ var, ? site engelledi, ✗ yok ve atılır.</li>
+        <li>Listede olmayan bir linke dayanan sayı ya da özellik <b>atılır</b>.</li>
+        <li>Videonun gerçek başlığı konuyla örtüşmüyorsa atılır.</li>
+      </ul>
+      <p class="note"><b>25/25</b> kaynak gerçek turda doğrulandı.</p>
+    </div>
+    <figure class="shot"><img class="crop" style="object-position:0 0" src="img/arastirma.png" alt="Araştırma ekranı"><figcaption>Kaynaklı sayılar, önerilen özellikler, doğrulanmış kaynaklar</figcaption></figure>
+  </div>
+</section>
+
+<!-- 6 · Kodlama -->
+<section class="slide">
+  <div class="top">
+    <ol class="rail"><li>Konsey</li><li>Araştırma</li><li class="on">Kodlama</li><li>Cila</li></ol>
+    <span class="label">06 / 10</span>
+  </div>
+  <div class="split">
+    <div>
+      <h1>Kodu ajan yazar, testi uygulama çalıştırır</h1>
+      <ul class="points">
+        <li>Kodlayıcı işletim sistemi <b>sandbox'ında</b> çalışır, proje klasörü dışına yazamaz.</li>
+        <li>Her görev: <b>kod → test → güvenlik incelemesi → commit.</b> Test kırıksa en fazla 3 düzeltme.</li>
+        <li>Ajanın "testler geçti" demesine güvenilmez, <b>testleri uygulama koşar.</b></li>
+        <li>Hangi güvenlik bulgularının düzeltileceğini sen seçersin.</li>
+      </ul>
+    </div>
+    <figure class="shot"><img class="crop" style="object-position:-30px -642px" src="img/kodlama.png" alt="Kodlama ekranı"><figcaption>Görev T4-T6: testler ve seviyeli güvenlik bulguları</figcaption></figure>
+  </div>
+</section>
+
+<!-- 7 · Cila -->
+<section class="slide">
+  <div class="top">
+    <ol class="rail"><li>Konsey</li><li>Araştırma</li><li>Kodlama</li><li class="on">Cila</li></ol>
+    <span class="label">07 / 10</span>
+  </div>
+  <h1 style="font-size:64px;margin-bottom:28px">Arayüzü görerek iyileştirir, bozarsa geri alır</h1>
+  <p class="lead" style="font-size:28px;margin-bottom:32px">Demo adımları tarayıcıda oynatılır ve ekran görüntüleri UI ajanına verilir. Test kırılırsa, yeni JS hatası çıkarsa ya da önce çalışan bir demo adımı bozulursa cila tamamen geri alınır.</p>
+  <div class="pair">
+    <figure class="shot"><img src="img/urun-once.png" alt="Ürün arayüzü cila öncesi"><figcaption>Önce</figcaption></figure>
+    <figure class="shot"><img src="img/urun-sonra.png" alt="Ürün arayüzü cila sonrası"><figcaption>Sonra: başlık, değer cümlesi, logo, mobil taşma düzeltildi</figcaption></figure>
+  </div>
+</section>
+
+<!-- 8 · Gerçek tur -->
+<section class="slide">
+  <div class="top"><span class="label">Gerçek bir tur</span><span class="label">08 / 10</span></div>
+  <h1>Tarımda yapay zeka · 24 saat · 2 kişi</h1>
+  <div class="nums">
+    <div class="num"><strong>9</strong><span>fikir, konseyde</span><small>105 sn</small></div>
+    <div class="num"><strong>25/25</strong><span>kaynak doğrulandı</span><small>133 sn araştırma</small></div>
+    <div class="num"><strong>7/7</strong><span>görev tamamlandı</span><small>29 dk kodlama</small></div>
+    <div class="num"><strong>102</strong><span>test geçti</span><small>uygulama koştu</small></div>
+  </div>
+  <p class="chosen"><small>Seçilen fikir · jüri 7.40 / 10</small>Yaprak + Uydu: uydu haritası stresli bölgeyi bulur, yaprak fotoğrafı nedeni ayırır: susuzluk mu, hastalık mı?</p>
+  <p class="note" style="margin-top:auto">Güvenlik incelemesi 2 medium + 5 low bulgu raporladı. <b>Sonra düzeltildi</b>, bu bulgu tipleri de kodlayıcıya önleyici kural olarak eklendi.</p>
+</section>
+
+<!-- 9 · Sınırlar ve sıradaki -->
+<section class="slide roomy">
+  <div class="top"><span class="label">Dürüst durum</span><span class="label">09 / 10</span></div>
+  <h1>Sınırlar ve sıradaki adımlar</h1>
+  <div class="two">
+    <div>
+      <h2>Sınırlar</h2>
+      <ul class="points">
+        <li>Uzun kodlama turları abonelik kotasını zorlar.</li>
+        <li>Süre servislerin yüküne bağlı: aynı konu 3 dk da sürdü, 7.5 dk da.</li>
+        <li>Sabit stack: FastAPI + HTML/JS.</li>
+        <li>Windows başlatıcısı gerçek bir Windows'ta denenmedi.</li>
+      </ul>
+    </div>
+    <div>
+      <h2>Sıradaki</h2>
+      <ul class="points">
+        <li>Bütün yeni özelliklerle tam bir gerçek tur.</li>
+        <li>Önleyici güvenlik kurallarının etkisini bulgu sayısıyla ölçmek.</li>
+        <li>Üretilen ürün için jüri sunumu da hazırlamak.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 10 · Kapanış -->
+<section class="slide roomy">
+  <div class="top"><span class="label">Kendiniz bakın</span><span class="label">10 / 10</span></div>
+  <h1>Kod, kurulum ve tüm ekranlar repoda</h1>
+<code class="block">git clone https://github.com/aliandacerdass/HackathonBuilder
+cd HackathonBuilder && pip install -r requirements.txt
+python -m backend.app        <span class="c"># → http://127.0.0.1:8000</span></code>
+  <ul class="points">
+    <li>Gereken: Claude Code, Codex CLI ve Antigravity CLI'larına giriş yapılmış olması. API key gerekmez.</li>
+    <li>README'de her aşamanın ekran görüntüsü aynı gerçek turdan.</li>
+  </ul>
+  <div class="foot"><span>github.com/aliandacerdass/HackathonBuilder</span><span>MIT lisansı</span></div>
+</section>
+
+</body>
+</html>
