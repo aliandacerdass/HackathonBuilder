@@ -10,6 +10,8 @@ Hackathon konusunu gir. Claude, GPT ve Gemini'den oluşan bir konsey fikir üret
 
 *Bu README'deki tüm ekran görüntüleri aynı gerçek turdan alındı: "Tarımda yapay zeka, 24 saat, 2 kişi". Konsey 105 saniyede 9 fikir üretti, araştırma 25 kaynak topladı (25'i de doğrulandı), kodlama 7 görevi 29 dakikada bitirdi (102 test geçti).*
 
+**Sunum:** [docs/sunum.pdf](docs/sunum.pdf) (10 slayt: problem, boru hattı, doğrulama katmanları, gerçek tur sonuçları, sınırlar).
+
 ## Nasıl çalışır
 
 ```
