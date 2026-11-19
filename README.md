@@ -6,6 +6,10 @@ Hackathon konusunu gir. Claude, GPT ve Gemini'den oluşan bir konsey fikir üret
 
 > Durum: **V1** (fikir konseyi), **V2** (araştırma), **V3** (kodlama döngüsü) ve **V4'ün UI/UX ajanı** çalışıyor. Jüri sunumu yol haritasında.
 
+![Konsey: Claude, GPT ve Gemini fikir üretir ve birbirinin fikirlerini eleştirir](docs/img/konsey.png)
+
+*Bu README'deki tüm ekran görüntüleri aynı gerçek turdan alındı: "Tarımda yapay zeka, 24 saat, 2 kişi". Konsey 105 saniyede 9 fikir üretti, araştırma 25 kaynak topladı (25'i de doğrulandı), kodlama 7 görevi 29 dakikada bitirdi (102 test geçti).*
+
 ## Nasıl çalışır
 
 ```
@@ -21,6 +25,8 @@ Konu ──▶ Netleştirme ──▶ Konsey I ──▶ Konsey II ──▶ Jü
 - **Model düşerse:** Bir model hata verirse konsey kalan modellerle devam eder. Netleştirme ve jüri adımlarında sıradaki modele geçilir.
 - Bir tur genelde **1.5-3 dakika** sürer (süre servislerin anlık yüküne göre değişir).
 
+![Jüri puanları: her fikir beş kritere göre puanlanır, toplamı kod hesaplar](docs/img/juri.png)
+
 ### Araştırma (V2)
 
 ```
@@ -35,6 +41,8 @@ Seçtiğin fikir ──▶ Arama sorguları ──▶ Makaleler (OpenAlex)      
 - **Kaynak filtresi:** Bir sayı veya özellik, toplanan listede olmayan bir linke dayanıyorsa kodla atılır.
 - **Gemini sadece analiz yapar**, web'e çıkmaz. Web araması Claude ve GPT'de.
 - Bir araştırma turu genelde **1.5-2.5 dakika** sürer. Web araması Claude kotasını normal çağrılardan hızlı harcar.
+
+![Araştırma: kaynaklı sayılar, önerilen özellikler ve doğrulanmış kaynaklar](docs/img/arastirma.png)
 
 ### Kodlama (V3)
 
@@ -53,6 +61,10 @@ Fikir + seçili özellikler ──▶ Plan ──▶ 👤 Plan onayı ──▶ 
 - **Tek tıkla açma:** Kodlama bitince projeye `Baslat-Mac.command` (macOS) ve `Baslat-Windows.bat` (Windows) eklenir. Çift tıklayınca uygulama başlar ve tarayıcıda açılır. Başka bir bilgisayarda ilk açılışta Python ortamını kendisi kurar; bunun için `requirements.txt` kodun import ettiği paketlerden çıkarılır. Windows'ta Python kurulu olmalı.
 - **Paketler:** Kodlayıcı paket kuramaz. Onayladığın paketleri uygulama, projenin `.venv`'ine kurar.
 - **Durdur / devam et:** Kota dolarsa veya durdurursan, biten görevler commit'lerden bulunur ve kalanlardan devam edilir.
+
+![Kodlama: her görev test ve güvenlik incelemesinden geçer, bulgular seviyesiyle raporlanır](docs/img/kodlama.png)
+
+![UI cilası: ürünün arayüzü önce ve sonra, masaüstü ve mobil](docs/img/ui-cilasi.png)
 
 ## Gereksinimler
 
@@ -110,6 +122,8 @@ Kararı kaydettikten sonra **Bu fikir için araştırma yap**'a bas. Araştırma
 Sonra **Kodlamaya başla**'ya bas. Planı onaylarken hangi güvenlik bulgularının düzeltileceğini seç, sonra kurulacak paketleri onayla (reddedersen not yazarak planı bir kez yeniden yazdırabilirsin). Görevler canlı akar, **Durdur** ile kesebilir, **Kaldığı yerden devam et** ile sürdürebilirsin. Bitince ürünün nasıl çalıştırılacağı ve test/güvenlik raporu gösterilir.
 
 **Geçmiş turlar:** Ana sayfadaki **Geçmiş turlar** listesinde bitmiş her tur durur. Birine tıklayınca fikirler, jüri puanları, kaynaklar, görevler ve UI cilası önce/sonra görüntüleri kayıttan anında açılır. Model çağrılmaz, kota harcanmaz. Kayıtlı tur salt okunurdur: karar ve seçimler değiştirilemez.
+
+![Geçmiş turlar: her turun hangi aşamaya kadar geldiği görünür](docs/img/gecmis-turlar.png)
 
 **Terminalde:**
 
