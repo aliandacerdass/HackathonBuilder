@@ -6,7 +6,7 @@ Hackathon konusunu gir. Claude, GPT ve Gemini'den oluşan bir konsey fikir üret
 
 > Durum: **V1** (fikir konseyi), **V2** (araştırma), **V3** (kodlama döngüsü) ve **V4'ün UI/UX ajanı** çalışıyor. Jüri sunumu yol haritasında.
 
-![Konsey: Claude, GPT ve Gemini fikir üretir ve birbirinin fikirlerini eleştirir](docs/img/konsey.png)
+![Bir turun özeti: seçilen fikir, fikir sayısı, jüri puanı, doğrulanan kaynaklar ve testi geçen görevler](docs/img/ozet.png)
 
 *Bu README'deki tüm ekran görüntüleri aynı gerçek turdan alındı: "Tarımda yapay zeka, 24 saat, 2 kişi". Konsey 105 saniyede 9 fikir üretti, araştırma 25 kaynak topladı (25'i de doğrulandı), kodlama 7 görevi 29 dakikada bitirdi (102 test geçti).*
 
@@ -26,6 +26,8 @@ Konu ──▶ Netleştirme ──▶ Konsey I ──▶ Konsey II ──▶ Jü
 - **Jüri:** Fikirleri yazarını bilmeden puanlar. Toplam puanı model değil kod hesaplar (ağırlıklı ortalama).
 - **Model düşerse:** Bir model hata verirse konsey kalan modellerle devam eder. Netleştirme ve jüri adımlarında sıradaki modele geçilir.
 - Bir tur genelde **1.5-3 dakika** sürer (süre servislerin anlık yüküne göre değişir).
+
+![Konsey: Claude, GPT ve Gemini fikir üretir ve birbirinin fikirlerini eleştirir](docs/img/konsey.png)
 
 ![Jüri puanları: her fikir beş kritere göre puanlanır, toplamı kod hesaplar](docs/img/juri.png)
 

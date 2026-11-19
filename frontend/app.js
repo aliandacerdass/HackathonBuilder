@@ -17,6 +17,34 @@ function el(tag, cls, text) {
 
 let runId = null;
 let source = null;
+let lastRanking = [];   // jüri sıralaması (kayıtlı turda karar olayı fikri buradan bulur)
+
+// ---------- mavi bant: seçilen fikir + özet sayılar ----------
+const SUMMARY = ["ideas", "score", "sources", "tasks"];
+function summarize(key, value, label) {
+  let item = document.querySelector(`#summary [data-k="${key}"]`);
+  if (!item) {  // aşama sırasıyla yerleşir (kayıtlı turda olaylar karışık sırayla gelebilir)
+    item = el("div");
+    item.dataset.k = key;
+    item.append(el("dt"), el("dd"));
+    const after = [...$("#summary").children].find((c) => SUMMARY.indexOf(c.dataset.k) > SUMMARY.indexOf(key));
+    $("#summary").insertBefore(item, after || null);
+  }
+  item.querySelector("dt").textContent = value;
+  item.querySelector("dd").textContent = label;
+}
+
+function setHeadline(r) {
+  $("#headline").textContent = r.idea.title;
+  $("#headline").hidden = $("#headline-label").hidden = false;
+  $("#brief-topic").classList.add("small");
+  summarize("score", r.total.toFixed(2), "jüri puanı");
+}
+
+function showWork() {
+  $("#intake").hidden = $("#past").hidden = true;
+  $("#work").hidden = $("#brief").hidden = $("#rail").hidden = false;
+}
 const ideaCards = {};   // idea_id → kart elemanı (eleştiriler altına eklenir)
 const ideaCount = {};   // model → fikir sayısı
 const seconds = {};     // "aşama:model" → süre (saniye)
@@ -93,12 +121,13 @@ const handlers = {
     const card = ideaCards[d.idea_id];
     if (!card || !d.weaknesses.length) return;
     let box = card.querySelector(".crit");
-    if (!box) { box = el("div", "crit"); card.append(box); }
+    if (!box) { box = el("details", "crit"); box.append(el("summary")); card.append(box); }
     const p = el("p");
     const who = el("b", null, NAMES[d.by]);
     who.dataset.by = d.by;
     p.append(who, d.weaknesses[0]);
     box.append(p);
+    box.querySelector("summary").textContent = `${box.querySelectorAll("p").length} eleştiri`;
   },
 
   error(d) {
@@ -107,7 +136,13 @@ const handlers = {
   },
 
   ranking(d) {
+    lastRanking = d.ranking;
     renderRanking(d.ranking);
+    const n = Object.values(ideaCount).reduce((a, b) => a + b, 0);
+    $("#council-meta").textContent = `${n} fikir · ` + Object.entries(ideaCount).map(([m, c]) => `${NAMES[m]} ${c}`).join(" · ");
+    $("#council").classList.add("titles");  // sıralama geldi: sadece fikir başlıkları kalır, ayrıntı istenince
+    $("#council-toggle").hidden = false;
+    summarize("ideas", n, "fikir");
     $("#judge-by").textContent = `Jüri: ${NAMES[d.judge]}, ${Math.round(seconds[`judge:${d.judge}`] || 0)}s.`;
   },
 
@@ -117,6 +152,8 @@ const handlers = {
     if (!row) return;
     row.classList.add("chosen");
     row.querySelector("details").after(el("p", "saved", "Bu fikir seçildi"));
+    const r = lastRanking.find((x) => x.idea_id === idea_id);
+    if (r) setHeadline(r);
   },
 
   done(d) {
@@ -166,21 +203,24 @@ function renderRanking(ranking) {
     const row = el("article", "score");
     row.dataset.id = r.idea_id;
 
+    const top = r.rank <= 3;  // ilk 3 açık; kalanlar tek satır, puan dökümü detayda
+    row.classList.toggle("compact", !top);
     const body = el("div");
     body.append(
       el("p", "meta mono", `${r.idea_id} · ${NAMES[r.author]} · tur ${r.round}`),
       el("h3", null, r.idea.title),
-      el("p", "pitch", r.idea.pitch),
     );
+    const pitch = el("p", "pitch", r.idea.pitch);
 
     const dl = el("dl", "ticks");
     for (const [key, label] of CRITERIA) {
       dl.append(el("dt", null, label), ticks(r.scores[key], color), el("span", "n", r.scores[key]));
     }
-    body.append(dl);
+    if (top) body.append(pitch, dl);
 
     const det = el("details");
-    det.append(el("summary", null, "Detaylar ve jüri gerekçesi"));
+    det.append(el("summary", null, top ? "Detaylar ve jüri gerekçesi" : "Puanlar ve detaylar"));
+    if (!top) det.append(pitch, dl);
     const ddl = el("dl");
     detailRow(ddl, "Jüri", r.reasoning);
     detailRow(ddl, "Problem", r.idea.problem);
@@ -226,6 +266,7 @@ function openDecision(row, r) {
     if (!res.ok) { save.disabled = false; form.append(el("p", "error", data.detail)); return; }
     document.querySelectorAll(".score").forEach((s) => s.classList.remove("chosen"));
     row.classList.add("chosen");
+    setHeadline(r);
     const done = el("div", "decided");
     const go = el("button", "primary", "Bu fikir için araştırma yap");
     go.type = "button";
@@ -289,6 +330,15 @@ const researchHandlers = {
   research(d) {
     renderStats(d.stats);
     renderFeatures(d.features);
+    const list = $("#sources");
+    summarize("sources", `${list.querySelectorAll(".badge.verified").length}/${list.children.length}`, "kaynak doğrulandı");
+    if (list.children.length > 8) {  // ilk 8 kaynak görünür, kalanı istenince
+      list.classList.add("clip");
+      const more = el("button", "link", `Tüm kaynakları göster (${list.children.length})`);
+      more.type = "button";
+      more.addEventListener("click", () => { list.classList.remove("clip"); more.remove(); });
+      list.after(more);
+    }
   },
   research_decision({ features }) {  // sadece kayıtlı turlarda: seçim değişmez
     const form = $("#features");
@@ -452,6 +502,7 @@ function renderApproval({ kind, data }) {
 function renderResult(r) {
   const box = el("div", "result");
   const passed = r.tasks.filter((t) => t.tests_ok).length;
+  summarize("tasks", `${passed}/${r.tasks.length}`, "görev testleri geçti");
   box.append(el("h3", "eyebrow", `${passed}/${r.tasks.length} görev testleri geçti · son test ${r.all_tests_ok ? "✓" : "✗"}`));
   if (r.launchers) {
     box.append(el("p", "hint", "Tek tıkla açmak için proje klasöründe çift tıkla:"),
@@ -538,8 +589,11 @@ const buildHandlers = {
     $("#tasks").replaceChildren(...d.tasks.map((t) => {
       const li = el("li");
       li.dataset.id = t.id;
+      const goal = el("p", "tgoal", t.goal);
+      goal.title = "Tamamını göster";
+      goal.addEventListener("click", () => li.classList.toggle("open"));
       li.append(el("span", "tid mono", t.id), el("span", "ttitle", t.title), el("span", "tstat mono", "bekliyor"),
-        el("p", "tgoal", t.goal), el("div", "tlog"));
+        goal, el("div", "tlog"));
       return li;
     }));
   },
@@ -617,6 +671,10 @@ async function startBuild(btn, resume) {
   }
 }
 
+$("#council-toggle").addEventListener("click", (e) => {
+  const titles = $("#council").classList.toggle("titles");
+  e.target.textContent = titles ? "Ayrıntıları göster" : "Sadece başlıkları göster";
+});
 $("#build-resume").addEventListener("click", (e) => startBuild(e.target, true));
 $("#build-stop").addEventListener("click", async (e) => {
   e.target.disabled = true;
@@ -662,8 +720,7 @@ async function openPast(r, btn) {
   if (!res.ok) { btn.disabled = false; btn.append(el("span", "error", data.detail)); return; }
   runId = data.run_id;
   pastStage = data.build ? "build" : data.research ? "research" : "decision";
-  $("#intake").hidden = $("#past").hidden = true;
-  $("#work").hidden = false;
+  showWork();
   const back = el("a", null, "Yeni tur başlat");
   back.href = "/";
   $("#replay").replaceChildren(`Kayıtlı tur · ${when(r.created)} · salt okunur · `, back);
@@ -696,8 +753,7 @@ $("#intake").addEventListener("submit", async (e) => {
   }
 
   runId = data.run_id;
-  $("#intake").hidden = true;
-  $("#work").hidden = false;
+  showWork();
   startClock();
   setStage("refine");
 
@@ -706,6 +762,14 @@ $("#intake").addEventListener("submit", async (e) => {
   for (const [name, fn] of Object.entries(handlers)) {
     source.addEventListener(name, (ev) => fn(JSON.parse(ev.data)));
   }
+});
+
+const RAIL_TARGET = { refine: "#council", council_round1: "#council", council_round2: "#council",
+  judge: "#jury", decision: "#jury", research: "#research", build: "#build" };
+$("#rail").addEventListener("click", (e) => {
+  const li = e.target.closest("li");
+  const target = li && document.querySelector(RAIL_TARGET[li.dataset.stage] || "body");
+  if (target && !target.hidden) target.scrollIntoView();
 });
 
 setStage("input");

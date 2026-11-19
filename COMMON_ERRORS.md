@@ -27,6 +27,9 @@
 | GitHub arama 403 | `search/repositories` 403, `/rate_limit` ise 10/10 gösteriyor | Key'siz arama limiti DAKİKADA 10 (saatte 60 değil). `/rate_limit` eski değer gösterebilir; gerçek kalan `x-ratelimit-remaining` başlığında. Araştırma toplam ≤10 arama yapar; testleri arka arkaya koşma |
 | Genişletilmiş arama alakasız popüler repo getirdi | `in:readme` + yıldız sırası → `public-apis` (500k★) | Genişletmede README arama yok, `sort` yok (en iyi eşleşme), ek sonuçlar ilk aramanın ARKASINA eklenir |
 
+| `hidden` niteliği çalışmadı | Ray giriş ekranında göründü | CSS'teki `display:flex` UA'nın `[hidden]{display:none}` kuralını ezer → global `[hidden] { display: none !important; }` |
+| Tam sayfa ekran görüntüsünde resim boş | UI önce/sonra kutuları sadece başlıkla çıktı | `loading=lazy` resimler ekran dışında yüklenmez → görüntüden önce `loading='eager'` + `complete` bekle |
+
 ## Her Değişiklik Sonrası Kontrol Listesi
 - [ ] Kodda key/token/şifre/kişisel yol yok
 - [ ] Yeni gizli dosya türü varsa `.gitignore`'a eklendi

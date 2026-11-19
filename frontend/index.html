@@ -10,25 +10,26 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <header class="top">
+  <header class="bar">
     <a class="brand" href="/">HackathonBuilder</a>
-    <ol class="rail" id="rail" aria-label="Aşamalar">
-      <li data-stage="input">Konu</li>
-      <li data-stage="refine">Netleştirme</li>
-      <li data-stage="council_round1">Konsey I</li>
-      <li data-stage="council_round2">Konsey II</li>
-      <li data-stage="judge">Jüri</li>
-      <li data-stage="decision">Karar</li>
-      <li data-stage="research">Araştırma</li>
-      <li data-stage="build">Kodlama</li>
+    <ol class="rail" id="rail" aria-label="Aşamalar" hidden>
+      <li data-stage="input"><button type="button">Konu</button></li>
+      <li data-stage="refine"><button type="button">Netleştirme</button></li>
+      <li data-stage="council_round1"><button type="button">Konsey I</button></li>
+      <li data-stage="council_round2"><button type="button">Konsey II</button></li>
+      <li data-stage="judge"><button type="button">Jüri</button></li>
+      <li data-stage="decision"><button type="button">Karar</button></li>
+      <li data-stage="research"><button type="button">Araştırma</button></li>
+      <li data-stage="build"><button type="button">Kodlama</button></li>
     </ol>
     <span class="clock mono" id="clock" hidden>00:00</span>
   </header>
 
-  <main>
+  <div class="band">
     <form class="intake" id="intake">
+      <p class="tagline mono">Claude · GPT · Gemini — senin bilgisayarında, API key'siz</p>
       <label class="eyebrow" for="topic">Hackathonun konusu</label>
-      <textarea id="topic" rows="2" required placeholder="ör. Sağlıkta yapay zeka"></textarea>
+      <textarea id="topic" rows="1" required placeholder="ör. Sağlıkta yapay zeka"></textarea>
       <div class="fields">
         <label>Süre (saat)
           <input id="hours" type="number" min="1" max="168" value="24" required>
@@ -43,43 +44,53 @@
           </select>
         </label>
       </div>
-      <button type="submit" class="primary">Konseyi topla</button>
-      <p class="hint">Claude, GPT ve Gemini fikir üretir ve birbirinin fikirlerini eleştirir. Jüri puanlar, son kararı sen verirsin. Bir tur birkaç dakika sürer.</p>
+      <div class="go">
+        <button type="submit" class="primary">Konseyi topla</button>
+        <p class="hint">Claude, GPT ve Gemini fikir üretir ve birbirinin fikirlerini eleştirir. Jüri puanlar, son kararı sen verirsin. Bir tur birkaç dakika sürer.</p>
+      </div>
       <p class="error" id="intake-error" role="alert" hidden></p>
+      <ol class="steps mono" aria-label="Aşamalar">
+        <li><b>01</b> Konsey</li><li><b>02</b> Araştırma</li><li><b>03</b> Kodlama</li><li><b>04</b> Cila</li>
+      </ol>
     </form>
 
+    <section class="brief" id="brief" hidden aria-live="polite">
+      <p class="replay mono" id="replay" hidden></p>
+      <p class="eyebrow" id="headline-label" hidden>Seçilen fikir</p>
+      <h1 class="headline" id="headline" hidden></h1>
+      <p class="eyebrow">Netleştirilmiş konu <span class="by" id="brief-by"></span></p>
+      <p class="brief-topic" id="brief-topic">Konu netleştiriliyor…</p>
+      <ul class="criteria" id="criteria"></ul>
+      <dl class="summary" id="summary"></dl>
+    </section>
+  </div>
+
+  <main>
     <section class="past" id="past" hidden>
       <h2 class="eyebrow">Geçmiş turlar</h2>
       <ul id="past-list"></ul>
     </section>
 
     <section class="work" id="work" hidden>
-      <p class="replay mono" id="replay" hidden></p>
-      <section class="brief" id="brief" aria-live="polite">
-        <p class="eyebrow">Netleştirilmiş konu <span class="by mono" id="brief-by"></span></p>
-        <p class="brief-topic" id="brief-topic">Konu netleştiriliyor…</p>
-        <ul class="criteria" id="criteria"></ul>
-      </section>
-
-      <section class="council">
-        <h2>Konsey</h2>
-        <div class="lanes">
-          <div class="lane" data-model="claude"><header><i></i>Claude<span class="status mono">bekliyor</span></header><div class="cards"></div></div>
-          <div class="lane" data-model="gpt"><header><i></i>GPT<span class="status mono">bekliyor</span></header><div class="cards"></div></div>
-          <div class="lane" data-model="gemini"><header><i></i>Gemini<span class="status mono">bekliyor</span></header><div class="cards"></div></div>
-        </div>
+      <section class="council" id="council">
+        <header class="sec"><span class="num mono">01</span><h2>Konsey</h2><span class="meta mono" id="council-meta"></span></header>
+        <button type="button" class="link toggle" id="council-toggle" hidden>Ayrıntıları göster</button>
+          <div class="lanes">
+            <div class="lane" data-model="claude"><header><i></i>Claude<span class="status mono">bekliyor</span></header><div class="cards"></div></div>
+            <div class="lane" data-model="gpt"><header><i></i>GPT<span class="status mono">bekliyor</span></header><div class="cards"></div></div>
+            <div class="lane" data-model="gemini"><header><i></i>Gemini<span class="status mono">bekliyor</span></header><div class="cards"></div></div>
+          </div>
       </section>
 
       <section class="jury" id="jury" hidden>
-        <h2>Jüri puanları</h2>
+        <header class="sec"><span class="num mono">02</span><h2>Jüri</h2></header>
         <p class="hint">Jüri fikirleri yazarını görmeden puanladı. Toplam puan ağırlıklı ortalamadır. <span id="judge-by"></span></p>
         <p class="hint mono" id="timings"></p>
         <div id="scores"></div>
       </section>
 
       <section class="research" id="research" hidden aria-live="polite">
-        <h2>Araştırma</h2>
-        <p class="hint" id="research-status">Arama sorguları yazılıyor…</p>
+        <header class="sec"><span class="num mono">03</span><h2>Araştırma</h2><span class="meta mono" id="research-status">Arama sorguları yazılıyor…</span></header>
         <div class="r-grid">
           <div class="r-col">
             <h3 class="eyebrow">Jüri için sayılar</h3>
@@ -90,15 +101,14 @@
             <form id="features"><p class="hint">Kaynaklar toplanınca burada görünecek.</p></form>
           </div>
           <div class="r-col">
-            <h3 class="eyebrow">Kaynaklar <span class="by mono" id="source-count"></span></h3>
+            <h3 class="eyebrow">Kaynaklar <span class="by" id="source-count"></span></h3>
             <ul class="sources" id="sources"></ul>
           </div>
         </div>
       </section>
 
       <section class="build" id="build" hidden aria-live="polite">
-        <h2>Kodlama</h2>
-        <p class="hint" id="build-status">Plan yazılıyor…</p>
+        <header class="sec"><span class="num mono">04</span><h2>Kodlama</h2><span class="meta mono" id="build-status">Plan yazılıyor…</span></header>
         <div id="approval"></div>
         <ol class="tasks" id="tasks"></ol>
         <div class="b-actions">
