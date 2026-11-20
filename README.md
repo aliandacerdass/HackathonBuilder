@@ -21,7 +21,7 @@
 
 Hackathon konusunu gir. Claude, GPT ve Gemini'den oluşan bir konsey fikir üretir ve birbirinin fikirlerini eleştirir. Bir jüri modeli fikirleri puanlar, son kararı sen verirsin. Seçtiğin fikir için makale, repo, web ve video kaynakları toplanır; jüriye gösterebileceğin, kaynağı doğrulanmış sayılar ve eklenebilecek özellikler çıkarılır. Sonra ajanlar fikri koda döker: plan, görev görev kod, test, güvenlik incelemesi ve arayüz cilası.
 
-**API key gerekmez.** Modeller kendi aboneliklerinle, resmi CLI'lar üzerinden çağrılır: Claude Code, Codex CLI ve Antigravity (`agy`). Her şey senin bilgisayarında çalışır.
+**API key gerekmez.** Modeller kendi aboneliklerinle, resmi CLI'lar üzerinden çağrılır: Claude Code, Codex CLI ve Antigravity (`agy`). Üçü birden şart değil: hangisi kuruluysa o çalışır ([ayrıntı](#hangi-model-ne-işe-yarar)). Her şey senin bilgisayarında çalışır.
 
 ## Neden
 
@@ -103,7 +103,8 @@ Plan onaylanınca görevler (en fazla 8) sırayla koşar: **kod → test (en faz
 
 - **Sabit stack:** FastAPI + HTML/JS. Testler `unittest`.
 - **Ürün HackathonBuilder'ın dışına yazılır:** `~/HackathonBuilderProjects/<tur-klasörü>/`. Her ürün kendi git reposudur, her görev ayrı commit olur. Sızıntı kontrolü hook'u ürüne de kurulur.
-- **Kodlayıcı sandbox'ta çalışır:** Kod `codex sandbox` (macOS işletim sistemi sandbox'ı) içinde yazılır ve proje klasörü dışına yazamaz. Varsayılan kodlayıcı Claude'dur (`codex sandbox` Codex kotası harcamaz). Claude'un ağ bağlantısı açıktır, çünkü kendi sunucusuna ulaşması gerekir; ama ona sadece dosya okuma/düzenleme araçları verilir, komut çalıştıramaz ve web'e çıkamaz. `HB_CODER=codex` ile kodu Codex yazar; Codex'in sandbox'ında internet tamamen kapalıdır.
+- **Kodu hangi model yazar:** Kurulu olan ilki: Claude → Codex → Gemini. `HB_CODER=claude|codex|gemini` ile seçebilirsin. Hangisinin yazacağı plan onayında görünür.
+- **Kodlayıcı sandbox'ta çalışır (macOS):** Claude ve Gemini, macOS'un yerleşik işletim sistemi sandbox'ında (`sandbox-exec`) çalışır ve proje klasörü dışına yazamaz. Ağ bağlantıları açıktır, çünkü kendi sunucularına ulaşmaları gerekir; ama sadece dosya okuma/düzenleme yapabilirler, komut çalıştıramazlar. Codex kendi sandbox'ını kurar ve orada internet tamamen kapalıdır. **Windows'ta sandbox yok:** kodlayıcı yalnızca CLI'ın kendi izin kısıtlarıyla çalışır, plan onayında bu konuda uyarı gösterilir.
 - **Testleri ajan değil uygulama çalıştırır.** Ajanın "testler geçti" demesine güvenilmez.
 - **Güvenlik incelemesi:** Her görevin diff'ini Claude inceler. Hangi bulguların düzeltileceğini plan onayında seçersin: sadece high, high + medium (varsayılan) veya hepsi. Kalanlar raporda görünür.
 - **Paketler:** Kodlayıcı paket kuramaz. Onayladığın paketleri uygulama, projenin `.venv`'ine kurar.
@@ -124,38 +125,96 @@ Görevler bitince bir ajan kodu okuyup jüri demosunu tarayıcı adımlarına ç
 
 ## Kurulum
 
-**Gereksinimler:** macOS veya Linux, **Python 3.10+**, ve aşağıdaki üç CLI **kurulu ve kendi hesabınla giriş yapılmış** olmalı:
+**Gerekenler:**
 
-| Model | CLI | Abonelik | Giriş |
-|---|---|---|---|
-| Claude | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`) | Claude Pro/Max | `claude` çalıştır → `/login` |
-| GPT | [Codex CLI](https://github.com/openai/codex) (`codex`) | ChatGPT | `codex login` |
-| Gemini | Antigravity CLI (`agy`) | Google/Gemini | `agy` çalıştır → hesabınla giriş |
+- **Python 3.10 veya üstü.** macOS'un hazır `python3`'ü 3.9 olduğu için yetmez; [python.org](https://www.python.org/downloads/)'dan kur. Windows'ta kurarken "Add python.exe to PATH" kutusunu işaretle.
+- **En az bir model CLI'ı**, kurulu ve kendi hesabınla giriş yapılmış:
 
-Push öncesi sızıntı taraması için [`gitleaks`](https://github.com/gitleaks/gitleaks) da gerekir (`brew install gitleaks`).
+| Model | CLI | Giriş |
+|---|---|---|
+| Claude | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`) | `claude` çalıştır → `/login` |
+| GPT | [Codex CLI](https://github.com/openai/codex) (`codex`) | `codex login` |
+| Gemini | [Antigravity CLI](https://antigravity.google) (`agy`) | `agy` çalıştır → hesabınla giriş |
+
+- **Git:** kodlama aşaması için gerekli. macOS'ta `xcode-select --install`, Windows'ta [git-scm.com](https://git-scm.com/download/win).
+
+### Tek tıkla kurulum
+
+Repoyu indir (`git clone` ya da GitHub'da **Code → Download ZIP**), sonra:
+
+| | Kurulum | Başlatma |
+|---|---|---|
+| **macOS** | `Kurulum-Mac.command`'a çift tıkla | `HackathonBuilder.command`'a çift tıkla |
+| **Windows** | `Kurulum-Windows.bat`'a çift tıkla | `HackathonBuilder.bat`'a çift tıkla |
+
+Kurulum betiği şunları yapar:
+
+1. Python 3.10+ arar.
+2. Projeye kendi Python ortamını (`.venv`) kurar; sistem Python'una dokunmaz.
+3. Paketleri yükler.
+4. Sorarak, UI cilası için Chromium'u indirir (yaklaşık 200 MB).
+5. Hangi model CLI'larının kurulu olduğunu gösterir. İstersen her modele kısa bir soru sorup girişini test eder.
+
+Tekrar çalıştırmak güvenlidir. macOS ZIP'ten açılan dosyayı engellerse: dosyaya sağ tıkla → **Aç**.
+
+<details>
+<summary><b>Elle kurulum</b> (terminalden)</summary>
+
+<br>
 
 ```bash
 git clone https://github.com/aliandacerdass/HackathonBuilder.git
 cd HackathonBuilder
+python3 -m venv .venv && source .venv/bin/activate     # Windows: py -3 -m venv .venv && .venv\Scripts\activate
 pip install -r requirements.txt
-playwright install chromium             # UI cilası için ekran görüntüsü tarayıcısı
-git config core.hooksPath .githooks     # push öncesi sızıntı kontrolünü açar
+playwright install --only-shell chromium               # UI cilası için ekran görüntüsü tarayıcısı
+python -m backend.runners --smoke                      # hangi modeller cevap veriyor
+python -m backend.tools --selftest                     # beklenen: 10/10 (OpenAlex, GitHub, YouTube erişimi)
 ```
 
-**Kontrol et:**
+GitHub, key olmadan saatte 60 isteğe izin veriyor. Bilinen hatalar için [COMMON_ERRORS.md](COMMON_ERRORS.md).
+
+</details>
+
+### Hangi model ne işe yarar
+
+Üç modelin hepsi varsa her aşama tam çalışır. Biri eksikse:
+
+| Aşama | Claude yoksa | GPT (Codex) yoksa | Gemini yoksa |
+|---|---|---|---|
+| Konsey | 2 modelle devam eder; GPT'nin Türkçe çıktısındaki ç/ğ/ş düzeltilmez | 2 modelle devam eder | 2 modelle devam eder |
+| Araştırma | Video kaynağı gelmez | Web kaynağı gelmez | Etkisi yok, analizi diğerleri yapar |
+| Kodlama | Kodu Codex ya da Gemini yazar | Etkisi yok | Etkisi yok |
+
+Makale ve repo kaynakları ücretsiz API'lerden (OpenAlex, GitHub) gelir, model gerektirmez. Her aşamanın yedek model sırası olduğu için tek modelle de akış kopmaz, yalnız konsey tek sesli kalır. Tek modelle uçtan uca tur henüz denenmedi.
+
+### Ücretsiz planla kullanım
+
+Kasım 2026 itibarıyla (planlar sık değişiyor, güncelini kendi hesabında kontrol et):
+
+- **Claude:** Ücretsiz planda Claude Code yok; en az Pro gerekir.
+- **GPT:** Codex CLI ücretsiz ChatGPT ve Go planlarında da açık, ama kotası düşük.
+- **Gemini:** Antigravity CLI ücretsiz planda açık, haftalık kotayla.
+
+Yani **ücretsiz ChatGPT + ücretsiz Gemini ile de çalışır**. Ama bir kodlama turu yaklaşık 30 dakika sürer ve çok sayıda model çağrısı yapar, ücretsiz kota büyük ihtimalle yarıda biter. Kota bitince **Kaldığı yerden devam et** ile sürdürebilirsin. Konsey ve araştırma çok daha az kota harcar.
+
+<details>
+<summary><b>Katkı verecekler için:</b> push öncesi sızıntı taraması</summary>
+
+<br>
 
 ```bash
-python -m backend.runners --smoke       # beklenen: 3/3  (üç CLI da cevap veriyor mu)
-python -m backend.tools --selftest      # beklenen: 10/10 (OpenAlex, GitHub, YouTube erişimi)
+brew install gitleaks                    # Windows: github.com/gitleaks/gitleaks/releases
+git config core.hooksPath .githooks      # her push'tan önce scripts/pre-push-check.sh çalışır
 ```
 
-Bir model ✗ verirse o CLI'ın girişini kontrol et. GitHub, key olmadan saatte 60 isteğe izin veriyor. Bilinen hatalar için [COMMON_ERRORS.md](COMMON_ERRORS.md).
+</details>
 
 ## Kullanım
 
 ### Tarayıcıda
 
-macOS'ta `HackathonBuilder.command` dosyasına çift tıkla: sunucu başlar, tarayıcı kendiliğinden açılır (kapatmak için Terminal penceresini kapat). Ya da terminalden `python -m backend.app` çalıştırıp **http://127.0.0.1:8000** adresini aç.
+`HackathonBuilder.command` (macOS) ya da `HackathonBuilder.bat` (Windows) dosyasına çift tıkla: sunucu başlar, tarayıcı kendiliğinden açılır (kapatmak için açılan pencereyi kapat). Ya da terminalden `python -m backend.app` çalıştırıp **http://127.0.0.1:8000** adresini aç.
 
 1. **Konuyu, süreyi ve ekibi gir**, sonuç dilini seç (Türkçe/İngilizce; fikirler, araştırma ve plan bu dilde yazılır, tur içinde değişmez). **Konseyi topla**'ya bas.
 2. Tur bitince istediğin fikrin kartında **Bu fikri seç**'e bas, istersen not ekle.
@@ -168,6 +227,8 @@ macOS'ta `HackathonBuilder.command` dosyasına çift tıkla: sunucu başlar, tar
 ![Geçmiş turlar: her turun hangi aşamaya kadar geldiği görünür](docs/img/gecmis-turlar.png)
 
 ### Terminalde
+
+Kurulum betiğini kullandıysan önce ortamı aç: `source .venv/bin/activate` (Windows: `.venv\Scripts\activate`).
 
 ```bash
 python -m backend.pipeline "Sağlıkta yapay zeka" --hours 24 --team "2 kişi, Python ve Flutter"
@@ -182,7 +243,7 @@ Proje klasöründe `Baslat-Mac.command` (Windows'ta `Baslat-Windows.bat`) dosyas
 
 ```bash
 cd ~/HackathonBuilderProjects/<tur-klasörü>
-.venv/bin/python -m uvicorn app.main:app --port 8001
+.venv/bin/python -m uvicorn app.main:app --port 8001      # Windows: .venv\Scripts\python -m uvicorn ...
 ```
 
 ### Model seçimi (isteğe bağlı)
@@ -192,7 +253,7 @@ Boş bırakılırsa her CLI'ın varsayılan modeli kullanılır.
 ```bash
 HB_CLAUDE_MODEL=sonnet python -m backend.app      # Claude kotan zorlanıyorsa
 HB_GPT_MODEL=...  HB_GEMINI_MODEL=...
-HB_CODER=codex python -m backend.app              # kodu Claude yerine Codex yazsın
+HB_CODER=gemini python -m backend.app             # kodu kim yazsın: claude | codex | gemini
 ```
 
 Gemini için kullanılabilir modelleri görmek için: `agy models`
@@ -229,7 +290,8 @@ Her tur `runs/<tarih>-<konu>/` klasörüne kaydedilir. `runs/` git'e gönderilme
 - **Temiz context:** Modeller proje dışındaki boş bir klasörde çalışır, proje dosyalarını görmez.
 - **Güvenli gösterim:** Model çıktıları sayfaya düz metin olarak yazılır (`textContent`). Çıktının içindeki HTML/script çalışmaz. Model linklerinden sadece `http`/`https` olanlar tıklanabilir.
 - **Kısıtlı web erişimi:** Araştırmada Claude'a sadece arama ve okuma araçları verilir. GPT salt okunur sandbox'ta çalışır. Skill'ler, kaynak metnindeki talimatların yok sayılmasını söyler (prompt injection).
-- **Kodlama sandbox'ı:** Kodlayıcı, üretilen testler ve UI cilası sırasında açılan uygulama işletim sistemi sandbox'ında çalışır ve proje klasörü dışına yazamaz. Testler internetsiz çalışır. Claude kodlayıcı ile UI cilası sunucusunun ağ bağlantısı açıktır: Claude'un kendi sunucusuna ulaşması, uygulamanın da port açabilmesi için gerekir (ağsız sandbox localhost'ta bile port açtırmıyor). Sandbox dosya *okumayı* engellemez; bu yüzden üretilen projeye de push öncesi sızıntı taraması kurulur. Paket kurulumu ve her plan senin onayınla yapılır.
+- **Kodlama sandbox'ı (macOS):** Kodlayıcı, üretilen testler ve UI cilası sırasında açılan uygulama, macOS'un yerleşik sandbox'ında (`sandbox-exec`) çalışır ve proje klasörü dışına yazamaz. Testler internetsiz çalışır. Kodlayıcı ile UI cilası sunucusunun ağ bağlantısı açıktır: modelin kendi sunucusuna ulaşması, uygulamanın da port açabilmesi için gerekir (ağsız sandbox localhost'ta bile port açtırmıyor). Sandbox dosya *okumayı* engellemez; bu yüzden üretilen projeye de push öncesi sızıntı taraması kurulur. Paket kurulumu ve her plan senin onayınla yapılır.
+- **Windows'ta sandbox yok:** Kodlayıcı yalnızca CLI'ın kendi izin kısıtlarıyla çalışır (Claude ve Gemini komut çalıştıramaz, sadece dosya düzenler); üretilen testler ve uygulama doğrudan bilgisayarında koşar. Plan onayında bu açıkça yazılır, onaylarsan riski kabul etmiş olursun.
 - **Push öncesi tarama:** Her push'tan önce `scripts/pre-push-check.sh` çalışır: gitleaks, API key, kişisel yol ve e-posta taraması. Bulgu varsa push iptal edilir.
 
 ## Sınırlar
@@ -237,7 +299,8 @@ Her tur `runs/<tarih>-<konu>/` klasörüne kaydedilir. `runs/` git'e gönderilme
 - Uzun kodlama turları abonelik kotasını zorlar.
 - Süre servislerin yüküne bağlı: aynı konu 3 dakika da sürdü, 7.5 dakika da.
 - Üretilen ürünler için stack sabit: FastAPI + HTML/JS.
-- Windows başlatıcısı (`Baslat-Windows.bat`) gerçek bir Windows'ta denenmedi.
+- **Windows'ta henüz denenmedi:** kurulum, başlatma ve üretilen ürünün başlatıcısı (`Baslat-Windows.bat`) yazıldı ama gerçek bir Windows'ta çalıştırılmadı. Sorun görürsen issue aç.
+- Linux'ta denenmedi; orada da sandbox yok (Windows gibi uyarıyla çalışır).
 
 ## Proje yapısı
 
@@ -248,7 +311,7 @@ backend/
   research.py   V2: sorgu → kaynak toplama → doğrulama → analiz
   builder.py    V3: plan → onaylar → görev döngüsü
   ui.py         V4: sandbox'ta açma + ekran görüntüsü (UI cilası)
-  runners.py    üç CLI'ı (claude, codex, agy) tek arayüzle çağırır
+  runners.py    üç CLI'ı (claude, codex, agy) tek arayüzle çağırır, sandbox, kodlayıcı seçimi
   tools.py      LLM'siz araştırma araçları: OpenAlex, GitHub, link doğrulama
   history.py    geçmiş turları kayıttan yeniden oynatır
   schemas.py    her ajanın çıktı şeması (pydantic → JSON schema)
@@ -256,6 +319,8 @@ frontend/       arayüz (HTML/CSS/JS)
 skills/         ajan rolleri, her biri bir .md dosyası
 scripts/        push öncesi sızıntı kontrolü, sunum PDF üretici
 docs/           sunum.pdf ve README görselleri
+Kurulum-Mac.command, Kurulum-Windows.bat       tek tıkla kurulum
+HackathonBuilder.command, HackathonBuilder.bat başlatma
 ```
 
 | Dosya | Ne işe yarar |
