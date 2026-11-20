@@ -1,6 +1,6 @@
 """V3 kodlama döngüsü: seçilen fikir (+özellikler) → plan → 👤 onay → 👤 paket onayı → görev döngüsü.
 
-Her görev: Codex kodlar (sandbox) → testleri BİZ çalıştırırız (sandbox) → en fazla 3 düzeltme
+Her görev: kodlayıcı (Claude/Codex/Gemini, hangisi kuruluysa) kodlar (sandbox) → testleri BİZ çalıştırırız (sandbox) → en fazla 3 düzeltme
 → Claude güvenlik incelemesi (araçsız, diff metin olarak) → ciddi bulgu varsa düzeltme → commit.
 
 Terminalden:
@@ -18,20 +18,22 @@ import time
 from pathlib import Path
 
 from .pipeline import ROOT, RUNS, SKILLS, Run, RunnerError, call_first
-from .runners import CODER, code, kill_tree
+from .runners import CODER, PROC_GROUP, SANDBOXED, WINDOWS, code, kill_tree, sandbox, venv_python
 from .schemas import CodeReport, DemoScript, Plan, SecurityReview, json_schema
 from .ui import SHOTS, capture, clean_steps
 
 PROJECTS = Path.home() / "HackathonBuilderProjects"
 MAX_FIX = 3
 MAX_TASKS = 8
-TEST_CMD = [".venv/bin/python", "-m", "unittest", "discover", "-s", "tests", "-v"]
+BASE_PACKAGES = ["fastapi", "uvicorn", "httpx", "pydantic"]  # planner.md bunları "kurulu" sayar
 TEST_TIMEOUT = 300
 PORT = 8001
 STATIC = "app/static/"
 UI_COMMIT = "UI cilası"
 # Plan onayında seçilir: hangi güvenlik bulguları kodlayıcıya düzelttirilir
 FIX_LEVELS = {"high": {"high"}, "medium": {"high", "medium"}, "low": {"high", "medium", "low"}}
+CODER_FILES = ("AGENTS.md", "CLAUDE.md")  # kodlayıcının kendiliğinden okuduğu dosya (Gemini de AGENTS.md okur)
+RUN_PY = r".venv\Scripts\python" if WINDOWS else ".venv/bin/python"  # kullanıcıya gösterilen çalıştırma komutu
 
 
 class BuildStopped(RunnerError):
@@ -44,7 +46,7 @@ async def sh(cmd: list[str], cwd: Path, timeout: int = 120, env: dict | None = N
     proc = await asyncio.create_subprocess_exec(
         *cmd, cwd=cwd, stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
-        env={**os.environ, **(env or {})}, start_new_session=True)
+        env={**os.environ, **(env or {})}, **PROC_GROUP)
     try:
         out, _ = await asyncio.wait_for(proc.communicate(), timeout)
     except asyncio.TimeoutError:
@@ -64,11 +66,16 @@ async def git(project: Path, *args: str) -> str:
 
 
 async def run_tests(project: Path) -> tuple[bool, str]:
-    """Üretilen testleri Codex'in sandbox'ında çalıştırır: sadece proje klasörüne yazabilir, internet yok.
+    """Üretilen testleri sandbox'ta çalıştırır: sadece proje klasörüne yazabilir, internet yok (Windows'ta sandbox yok).
     Ajanın 'testler geçti' raporuna güvenmeyiz, sonucu bu belirler."""
-    rc, out = await sh(["codex", "sandbox", "-c", 'sandbox_mode="workspace-write"', *TEST_CMD],
-                       project, TEST_TIMEOUT, {"PYTHONDONTWRITEBYTECODE": "1"})
+    cmd = [venv_python(project), "-m", "unittest", "discover", "-s", "tests", "-v"]
+    rc, out = await sh(sandbox(cmd, project, network=False), project, TEST_TIMEOUT, {"PYTHONDONTWRITEBYTECODE": "1"})
     return rc == 0, out[-3000:]
+
+
+def plan_info(plan: Plan) -> dict:
+    """Onay ekranı için plan + kodu kimin yazacağı + sandbox var mı (Windows'ta yok: uyarı gösterilir)."""
+    return {**plan.model_dump(), "coder": CODER, "sandboxed": SANDBOXED}
 
 
 # ---------- aşamalar ----------
@@ -77,7 +84,7 @@ async def make_plan(run: Run, ctx: dict, note: str = "") -> Plan:
     task = "Write the build plan for this idea."
     if note:
         task += f" The team rejected the previous plan with this feedback, follow it: {note}"
-    _, plan = await call_first(run, "build_plan", ["claude", "gpt"], "planner", task, ctx, Plan)
+    _, plan = await call_first(run, "build_plan", ["claude", "gpt", "gemini"], "planner", task, ctx, Plan)
     plan.tasks = plan.tasks[:MAX_TASKS]
     run.save("plan", plan.model_dump())
     run.emit("plan", plan.model_dump())
@@ -91,13 +98,13 @@ async def setup_project(run: Run, plan: Plan, ctx: dict) -> Path:
     (project / "tests").mkdir(parents=True, exist_ok=True)
     (project / "app").mkdir(exist_ok=True)
 
-    # Kodlayıcı bu dosyayı kendiliğinden okur (Codex: AGENTS.md, Claude: CLAUDE.md): skill + proje bağlamı
+    # Kodlayıcı bu dosyayı kendiliğinden okur (Codex ve Gemini: AGENTS.md, Claude: CLAUDE.md): skill + proje bağlamı
     agents = (SKILLS / "coder.md").read_text() + "\n\n## This project\n" + json.dumps(
         {"idea": ctx["idea"], "selected_features": ctx.get("selected_features", []),
          "hours": ctx["hours"], "plan": plan.summary, "file_tree": plan.file_tree},
         indent=2, ensure_ascii=False)
-    (project / "AGENTS.md").write_text(agents)
-    (project / "CLAUDE.md").write_text(agents)
+    for name in CODER_FILES:
+        (project / name).write_text(agents)
     (project / ".gitignore").write_text(".venv/\n__pycache__/\n*.pyc\n.env\n.env.*\n*.log\n.DS_Store\n")
     (project / "tests" / "__init__.py").touch()
 
@@ -107,9 +114,15 @@ async def setup_project(run: Run, plan: Plan, ctx: dict) -> Path:
     shutil.copy(ROOT / "scripts" / "pre-push-check.sh", project / "scripts" / "pre-push-check.sh")
     shutil.copy(ROOT / ".githooks" / "pre-push", project / ".githooks" / "pre-push")
 
-    rc, out = await sh(["python3", "-m", "venv", "--system-site-packages", ".venv"], project)
+    rc, out = await sh([sys.executable, "-m", "venv", "--system-site-packages", ".venv"], project)
     if rc != 0:
         raise RunnerError(f"venv kurulamadı: {out[-300:]}")
+    # Temel paketler sistemde yoksa (ör. HackathonBuilder kendi .venv'inden çalışıyorsa) ürüne kurulur
+    rc, _ = await sh([venv_python(project), "-c", "import " + ", ".join(BASE_PACKAGES)], project)
+    if rc != 0:
+        rc, out = await sh([venv_python(project), "-m", "pip", "install", "-q", *BASE_PACKAGES], project, 600)
+        if rc != 0:
+            raise RunnerError(f"temel paketler kurulamadı (internet?): {out[-300:]}")
     await git(project, "init", "-q", "-b", "main")
     await git(project, "config", "core.hooksPath", ".githooks")
     await git(project, "add", "-A")
@@ -120,7 +133,7 @@ async def setup_project(run: Run, plan: Plan, ctx: dict) -> Path:
 
 async def install_packages(run: Run, project: Path, packages: list[str]):
     """Sandbox'ta internet yok: onaylanan paketleri biz kurarız (sandbox dışında, kullanıcı onayıyla)."""
-    rc, out = await sh([".venv/bin/python", "-m", "pip", "install", "-q", *packages], project, 600)
+    rc, out = await sh([venv_python(project), "-m", "pip", "install", "-q", *packages], project, 600)
     if rc != 0:
         raise RunnerError(f"paket kurulumu başarısız: {out[-400:]}")
     run.emit("packages_installed", {"packages": packages})
@@ -159,7 +172,7 @@ async def build_task(run: Run, project: Path, plan: Plan, i: int, fix: str = "hi
     findings, reviewed = [], True
     if diff.strip():
         try:
-            _, review = await call_first(run, stage, ["claude", "gpt"], "security-reviewer",
+            _, review = await call_first(run, stage, ["claude", "gpt", "gemini"], "security-reviewer",
                                          f"Review the diff of task {t.id}.", {"task": t.model_dump(), "diff": diff},
                                          SecurityReview)
             findings = [f.model_dump() for f in review.findings]
@@ -239,10 +252,10 @@ async def run_build(run_dir: Path, emit, approve, resume: bool = False) -> dict:
 
         run.begin("build_plan")
         plan = await make_plan(run, ctx)
-        answer = await approve("plan", plan.model_dump())
+        answer = await approve("plan", plan_info(plan))
         if not answer["ok"] and answer.get("note"):  # geri bildirimle bir kez yeniden planla
             plan = await make_plan(run, ctx, answer["note"])
-            answer = await approve("plan", plan.model_dump())
+            answer = await approve("plan", plan_info(plan))
         if not answer["ok"]:
             raise BuildStopped("plan reddedildi")
         fix = answer.get("fix") if answer.get("fix") in FIX_LEVELS else "high"
@@ -256,7 +269,7 @@ async def run_build(run_dir: Path, emit, approve, resume: bool = False) -> dict:
                 await install_packages(run, project, plan.packages)
                 packages = plan.packages
             else:
-                for name in ("AGENTS.md", "CLAUDE.md"):
+                for name in CODER_FILES:
                     (project / name).write_text((project / name).read_text() +
                                                 f"\n\nDo NOT use these packages (not installed): {plan.packages}\n")
 
@@ -470,7 +483,7 @@ async def finish(run: Run, project: Path, plan: Plan, results: list[dict], packa
     launchers = await add_launchers(project, packages)
     ok, out = await run_tests(project)
     result = {"project": str(project), "tasks": results, "all_tests_ok": ok, "final_test_output": out[-1500:],
-              "run_command": f".venv/bin/python -m uvicorn app.main:app --port {PORT}", "launchers": launchers, "ui": ui,
+              "run_command": f"{RUN_PY} -m uvicorn app.main:app --port {PORT}", "launchers": launchers, "ui": ui,
               "demo_steps": plan.demo_steps}
     run.save("build", result)
     total, stages = run.save_timings("build_timings")
@@ -486,7 +499,10 @@ async def terminal_approve(kind: str, data: dict) -> dict:
         print(f"\n📋 PLAN: {data['summary']}")
         for t in data["tasks"]:
             print(f"  {t['id']} {t['title']} — {t['goal']}")
-        print(f"  paketler: {data['packages'] or 'yok'}")
+        print(f"  paketler: {data['packages'] or 'yok'} · kodlayıcı: {data['coder']}")
+        if not data["sandboxed"]:
+            print("  ⚠ Bu sistemde sandbox yok: kodlayıcı yalnızca kendi izin kısıtlarıyla çalışır, "
+                  "üretilen testler doğrudan bilgisayarında koşar.")
     else:
         print(f"\n📦 Kurulacak pip paketleri (internetten indirilecek): {data['packages']}")
     ans = (await asyncio.to_thread(input, "Onaylıyor musun? (e = evet / not yaz = düzelt / boş = hayır): ")).strip()

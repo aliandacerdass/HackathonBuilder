@@ -9,7 +9,10 @@ if curl -s -o /dev/null "$URL"; then
   exit 0
 fi
 
+PY=.venv/bin/python  # Kurulum-Mac.command'ın kurduğu ortam; yoksa sistemdeki python3
+[ -x "$PY" ] || PY=python3
+
 # Sunucu hazır olunca tarayıcıyı aç
 (until curl -s -o /dev/null "$URL"; do sleep 0.5; done; open "$URL") &
 echo "HackathonBuilder başlıyor… Kapatmak için bu pencereyi kapat."
-python3 -m backend.app
+$PY -m backend.app

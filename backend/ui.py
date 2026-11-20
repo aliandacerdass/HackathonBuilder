@@ -1,7 +1,7 @@
 """V4 UI cilası için göz: üretilen uygulamayı sandbox'ta açar, Playwright ile ekran görüntüsü alır.
 
-Sunucu `codex sandbox` içinde çalışır (proje dışına yazamaz). Ağ kapalı sandbox'ta port açılamadığı için
-ağ açık modda çalışır. Tarayıcı bizim tarafta, sadece localhost'a gider.
+Sunucu sandbox içinde çalışır (proje dışına yazamaz; Windows'ta sandbox yok). Ağ kapalı sandbox'ta port
+açılamadığı için ağ açık modda çalışır. Tarayıcı bizim tarafta, sadece localhost'a gider.
 
 Demo adımları (DemoScript) LLM'den JSON olarak gelir, kod değildir: sadece sabit eylemler (click, fill, select,
 upload, wait) uygulanır. Aynı adımlar cila öncesi ve sonrası koşar: önce çalışan adım sonra kırılırsa cila bozmuştur.
@@ -14,13 +14,10 @@ from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import async_playwright
 
 from .pipeline import RunnerError
-from .runners import kill_tree
+from .runners import PROC_GROUP, kill_tree, sandbox, venv_python
 
 SHOTS = ".hb/ui"  # proje içinde, git dışında (.git/info/exclude)
 VIEWPORTS = {"desktop": (1280, 900), "mobile": (390, 844)}
-SERVE = ["codex", "sandbox", "-c", 'sandbox_mode="workspace-write"',
-         "-c", "sandbox_workspace_write.network_access=true",
-         ".venv/bin/python", "-m", "uvicorn", "app.main:app", "--port"]
 START_TIMEOUT = 30
 ACTIONS = {"click", "fill", "select", "upload", "wait"}
 MAX_STEPS, MAX_SHOTS = 15, 3
@@ -91,9 +88,10 @@ async def capture(project: Path, tag: str, steps: list[dict] = ()) -> dict:
     for old in out.glob(f"{tag}-*.png"):
         old.unlink()
     port = free_port()
+    serve = [venv_python(project), "-m", "uvicorn", "app.main:app", "--port", str(port)]
     proc = await asyncio.create_subprocess_exec(
-        *SERVE, str(port), cwd=project, stdin=asyncio.subprocess.DEVNULL,
-        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL, start_new_session=True)
+        *sandbox(serve, project, network=True), cwd=project, stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL, **PROC_GROUP)
     errors, overflow, shots, completed, failed = [], [], [], len(steps), None
     try:
         await wait_up(port, proc)

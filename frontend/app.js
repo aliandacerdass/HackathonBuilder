@@ -470,7 +470,12 @@ function renderApproval({ kind, data }) {
     box.append(el("h3", null, "Planı onaylıyor musun?"), el("p", null, data.summary));
     const ul = el("ul");
     ul.append(el("li", null, `Ek paketler: ${data.packages.length ? data.packages.join(", ") : "yok"}`));
+    ul.append(el("li", null, `Kodu yazacak model: ${data.coder}`));
     box.append(ul);
+    if (data.sandboxed === false) {
+      box.append(el("p", "warn", "Bu sistemde sandbox yok (Windows): kodlayıcı yalnızca kendi izin kısıtlarıyla " +
+        "çalışır, üretilen testler ve uygulama doğrudan bilgisayarında koşar. Onaylarsan bu riski kabul edersin."));
+    }
     const fix = el("select");
     fix.id = "fix-level";
     [["medium", "high + medium"], ["high", "sadece high"], ["low", "hepsi (low dahil)"]].forEach(([v, t]) => {
