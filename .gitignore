@@ -16,6 +16,11 @@ runs/
 
 # --- Kişisel geliştirme notları (yerelde kalır) ---
 PROJECT_MEMORY.md
+tasks.md
+souls.md
+RULES.md
+CLAUDE.md
+AGENTS.md
 
 # --- Log / geçici ---
 *.log

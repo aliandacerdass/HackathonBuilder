@@ -13,7 +13,7 @@
 ![API key gerekmez](https://img.shields.io/badge/API%20key-gerekmez-F2B632?style=flat-square)
 ![MIT](https://img.shields.io/badge/lisans-MIT-111110?style=flat-square)
 
-[Nasıl çalışır](#nasıl-çalışır) · [Kurulum](#kurulum) · [Kullanım](#kullanım) · [Güvenlik](#güvenlik) · [Sunum (PDF)](docs/sunum.pdf)
+[Hızlı başlangıç](#hızlı-başlangıç) · [Nasıl çalışır](#nasıl-çalışır) · [Kurulum](#kurulum) · [Kullanım](#kullanım) · [Güvenlik](#güvenlik) · [Sunum (PDF)](docs/sunum.pdf)
 
 </div>
 
@@ -22,6 +22,14 @@
 Hackathon konusunu gir. Claude, GPT ve Gemini'den oluşan bir konsey fikir üretir ve birbirinin fikirlerini eleştirir. Bir jüri modeli fikirleri puanlar, son kararı sen verirsin. Seçtiğin fikir için makale, repo, web ve video kaynakları toplanır; jüriye gösterebileceğin, kaynağı doğrulanmış sayılar ve eklenebilecek özellikler çıkarılır. Sonra ajanlar fikri koda döker: plan, görev görev kod, test, güvenlik incelemesi ve arayüz cilası.
 
 **API key gerekmez.** Modeller kendi aboneliklerinle, resmi CLI'lar üzerinden çağrılır: Claude Code, Codex CLI ve Antigravity (`agy`). Üçü birden şart değil: hangisi kuruluysa o çalışır ([ayrıntı](#hangi-model-ne-işe-yarar)). Her şey senin bilgisayarında çalışır.
+
+## Hızlı başlangıç
+
+1. **İndir:** `git clone https://github.com/aliandacerdass/HackathonBuilder.git` ya da GitHub'da **Code → Download ZIP**.
+2. **Kur:** `Kurulum-Mac.command` (macOS) ya da `Kurulum-Windows.bat` (Windows) dosyasına çift tıkla.
+3. **Aç:** `HackathonBuilder.command` ya da `HackathonBuilder.bat` dosyasına çift tıkla. Tarayıcıda konuyu yaz, **Konseyi topla**'ya bas.
+
+Gereken tek şey: Python 3.10+ ve en az bir model CLI'ı ([Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex CLI](https://github.com/openai/codex) ya da [Antigravity](https://antigravity.google)), kendi hesabınla giriş yapılmış. Ayrıntılar: [Kurulum](#kurulum).
 
 ## Neden
 
@@ -325,8 +333,6 @@ HackathonBuilder.command, HackathonBuilder.bat başlatma
 
 | Dosya | Ne işe yarar |
 |---|---|
-| `RULES.md` | Bu projede çalışan herkes (insan ve ajan) için zorunlu kurallar |
-| `tasks.md` | Fazlara göre yapılacaklar |
 | `COMMON_ERRORS.md` | Bilinen hatalar ve kontrol listesi |
 | `skills/*.md` | Ajan rolleri: netleştirici, konsey üyesi, jüri, sorgu yazıcı, web araştırmacı, repo inceleyici, sayı ve özellik çıkarıcı, planlayıcı, kodlayıcı, güvenlik inceleyici, demo adımı yazıcı, UI tasarımcısı |
 

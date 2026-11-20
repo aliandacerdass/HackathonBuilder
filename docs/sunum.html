@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- HackathonBuilder sunumu. Kaynak dosya: PDF'i (docs/sunum.pdf) bu dosyadan üretilir.
-     Her .slide sabit 1920x1080 bir PDF sayfasıdır. Renk ve yazı tipleri uygulamanın kendisiyle aynı. -->
+     Her .slide sabit 1920x1080 bir PDF sayfasıdır. Model renkleri (Claude/GPT/Gemini) uygulamanın kendisiyle aynı. -->
 <html lang="tr">
 <head>
 <meta charset="utf-8">
@@ -108,6 +108,13 @@
   code.block { display: block; font: 400 30px/1.7 var(--mono); background: var(--panel); border: 1px solid var(--line);
                border-radius: 14px; padding: 32px 40px; margin: 8px 0 40px; color: var(--cream); white-space: pre; }
   code.block .c { color: var(--muted); }
+  .oses { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin: 0 0 28px; }
+  .os { border: 1px solid var(--line); border-radius: 16px; background: var(--panel); padding: 30px 40px 34px; }
+  .os h3 { font: 400 48px/1.1 var(--display); margin: 0 0 20px; display: flex; align-items: baseline; gap: 18px; }
+  .os h3 small { font: 400 18px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .os ol { margin: 0; padding-left: 36px; display: grid; gap: 16px; color: var(--muted); font: 400 22px var(--mono); }
+  .os code { display: block; font: 500 28px var(--mono); color: var(--cream); }
+  .os li span { display: block; margin-top: 4px; font: 400 22px var(--body); color: var(--soft); }
 </style>
 </head>
 <body>
@@ -162,7 +169,7 @@
     <p><b>Özellikleri sen seçersin.</b> Her biri bir kaynağa dayanır.</p>
     <p><b>Planı ve paketleri sen onaylarsın.</b> Kodlama ondan sonra başlar.</p>
   </div>
-  <div class="foot"><span>API key yok: modeller kendi aboneliğinle, resmi CLI'larla, senin bilgisayarında çalışır.</span></div>
+  <div class="foot"><span>API key yok: modeller kendi aboneliğinle, resmi CLI'larla, senin bilgisayarında çalışır. Üçü birden şart değil.</span></div>
 </section>
 
 <!-- 4 · Konsey -->
@@ -216,7 +223,8 @@
     <div>
       <h1>Kodu ajan yazar, testi uygulama çalıştırır</h1>
       <ul class="points">
-        <li>Kodlayıcı işletim sistemi <b>sandbox'ında</b> çalışır, proje klasörü dışına yazamaz.</li>
+        <li>Kodu <b>Claude, Codex ya da Gemini</b> yazar: hangisi kuruluysa.</li>
+        <li>Kodlayıcı işletim sistemi <b>sandbox'ında</b> çalışır, proje klasörü dışına yazamaz. Windows'ta sandbox yok, plan onayında uyarı çıkar.</li>
         <li>Her görev: <b>kod → test → güvenlik incelemesi → commit.</b> Test kırıksa en fazla 3 düzeltme.</li>
         <li>Ajanın "testler geçti" demesine güvenilmez, <b>testleri uygulama koşar.</b></li>
         <li>Hangi güvenlik bulgularının düzeltileceğini sen seçersin.</li>
@@ -265,7 +273,7 @@
         <li>Uzun kodlama turları abonelik kotasını zorlar.</li>
         <li>Süre servislerin yüküne bağlı: aynı konu 3 dk da sürdü, 7.5 dk da.</li>
         <li>Sabit stack: FastAPI + HTML/JS.</li>
-        <li>Windows başlatıcısı gerçek bir Windows'ta denenmedi.</li>
+        <li>Windows ve Linux'ta sandbox yok; Windows sürümü gerçek bir makinede henüz denenmedi.</li>
       </ul>
     </div>
     <div>
@@ -273,6 +281,8 @@
       <ul class="points">
         <li>Bütün yeni özelliklerle tam bir gerçek tur.</li>
         <li>Önleyici güvenlik kurallarının etkisini bulgu sayısıyla ölçmek.</li>
+        <li>Windows'ta gerçek kurulum ve tur.</li>
+        <li>Tek modelle uçtan uca tur (yedek sıraları var, denenmedi).</li>
         <li>Üretilen ürün için jüri sunumu da hazırlamak.</li>
       </ul>
     </div>
@@ -280,15 +290,30 @@
 </section>
 
 <!-- 10 · Kapanış -->
-<section class="slide roomy">
-  <div class="top"><span class="label">Kendiniz bakın</span><span class="label">10 / 10</span></div>
-  <h1>Kod, kurulum ve tüm ekranlar repoda</h1>
-<code class="block">git clone https://github.com/aliandacerdass/HackathonBuilder
-cd HackathonBuilder && pip install -r requirements.txt
-python -m backend.app        <span class="c"># → http://127.0.0.1:8000</span></code>
+<section class="slide">
+  <div class="top"><span class="label">Kendiniz deneyin</span><span class="label">10 / 10</span></div>
+  <h1>İki çift tıkla kurulur</h1>
+<code class="block" style="padding:24px 40px;margin-bottom:28px">git clone https://github.com/aliandacerdass/HackathonBuilder
+<span class="c"># ya da GitHub'da Code → Download ZIP</span></code>
+  <div class="oses">
+    <div class="os">
+      <h3>macOS</h3>
+      <ol>
+        <li><code>Kurulum-Mac.command</code><span>Python ortamı, paketler, model kontrolü</span></li>
+        <li><code>HackathonBuilder.command</code><span>Uygulama tarayıcıda açılır</span></li>
+      </ol>
+    </div>
+    <div class="os">
+      <h3>Windows <small>henüz denenmedi</small></h3>
+      <ol>
+        <li><code>Kurulum-Windows.bat</code><span>Aynı adımlar</span></li>
+        <li><code>HackathonBuilder.bat</code><span>Uygulama tarayıcıda açılır</span></li>
+      </ol>
+    </div>
+  </div>
   <ul class="points">
-    <li>Gereken: Claude Code, Codex CLI ve Antigravity CLI'larına giriş yapılmış olması. API key gerekmez.</li>
-    <li>README'de her aşamanın ekran görüntüsü aynı gerçek turdan.</li>
+    <li><b>Gereken:</b> Python 3.10+ ve en az bir model CLI'ı (Claude Code, Codex CLI ya da Antigravity), kendi hesabınla giriş yapılmış. API key gerekmez.</li>
+    <li>Hangi model eksikse ne olur, ücretsiz planla kullanım ve tüm ekranlar README'de.</li>
   </ul>
   <div class="foot"><span>github.com/aliandacerdass/HackathonBuilder</span><span>MIT lisansı</span></div>
 </section>
